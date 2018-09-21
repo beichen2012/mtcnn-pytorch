@@ -3,7 +3,6 @@ import torch
 import torch.optim as optim
 from DataSource import *
 from Nets import *
-import time
 import numpy as np
 
 
@@ -27,19 +26,23 @@ class SolverParam:
         self.save_interval = save_interval
         self.save_prefix = save_prefix
 
+
 class TrainInst:
     """
     train instance class
     """
-    def __init__(self, model, device, dataset, sp, log):
+
+    def __init__(self, model, device, dataset, sp, log, image_size):
         self.model = model
         self.device = device
         self.dataset = dataset
         self.sp = sp
         self.log = log
+        self.image_size = image_size
+
     def train(self, idx):
         self.model.train()
-        data, label,bbox = self.dataset.getTrainData(self.sp.train_batch)
+        data, label, bbox = self.dataset.getTrainData(self.sp.train_batch)
         # to tensor
         data = torch.from_numpy(data).to(self.device)
         label = torch.from_numpy(label).to(self.device)
@@ -56,8 +59,10 @@ class TrainInst:
         # display train
         if idx % self.sp.display == 0:
             acc = AddClsAccuracy(pred_cls, label)
-            self.log.info("train net -> iter: {}, lr: {}, cls loss: {:.4f}, cls acc: {:.4f}, bbox loss: {:.4f}".format(
-                idx, self.opter.param_groups[0]['lr'], loss_cls.item(), acc, loss_box))
+            mmap = AddBoxMap(pred_bbox, label, bbox, self.image_size, self.image_size)
+            self.log.info(
+                "train net -> iter: {}, lr: {}, cls loss: {:.4f}, cls acc: {:.4f}, bbox loss: {:.4f}, bbox map: {:.4f}".format(
+                    idx, self.opter.param_groups[0]['lr'], loss_cls.item(), acc, loss_box, mmap))
 
         return
 
@@ -66,8 +71,8 @@ class TrainInst:
         test_cls_loss = []
         test_box_loss = []
         test_cls_acc = []
+        test_box_map = []
         with torch.no_grad():
-            start = time.time()
             for i in range(0, self.sp.test_iter):
                 data, label, bbox = self.dataset.getTestData(self.sp.test_batch)
                 # to tensor
@@ -78,19 +83,21 @@ class TrainInst:
                 loss_cls = AddClsLoss(pred_cls, label)
                 loss_box = AddRegLoss(pred_bbox, label, bbox)
                 acc = AddClsAccuracy(pred_cls, label)
+                map = AddBoxMap(pred_bbox, label, bbox, self.image_size, self.image_size)
 
                 test_cls_acc += [acc]
                 test_cls_loss += [loss_cls.item()]
                 test_box_loss += [loss_box.item()]
-            end = time.time()
+                test_box_map += [map]
         #
         test_cls_loss = np.array(test_cls_loss)
         test_box_loss = np.array(test_box_loss)
         test_cls_acc = np.array(test_cls_acc)
-        self.log.info("test net -> iter: {}, lr: {}, cls loss: {:.4f}, cls acc: {:.4f}, bbox loss: {:.4f}".format(
+        test_box_map = np.array(test_box_map)
+        self.log.info(
+            "test net -> iter: {}, lr: {}, cls loss: {:.4f}, cls acc: {:.4f}, bbox loss: {:.4f}, bbox map: {:.4f}".format(
                 idx, self.opter.param_groups[0]['lr'], np.mean(test_cls_loss), np.mean(test_cls_acc),
-        np.mean(test_box_loss)))
-        self.log.info("test net -> a iter time cost: {} s.".format((end-start) / self.sp.test_iter))
+                np.mean(test_box_loss), np.mean(test_box_map)))
 
     def run(self):
         # the model definition
@@ -102,20 +109,18 @@ class TrainInst:
         for i in range(0, self.sp.max_iter):
             self.train(i)
             # fot test
-            if i % self.sp.test_interval == 0:
+            if i % self.sp.test_interval == 0 and i != 0:
                 self.validation(i)
 
             # for save
-            if i % self.sp.save_interval == 0:
+            if i % self.sp.save_interval == 0 and i != 0:
                 path = self.sp.save_prefix + "_iter_{}.pkl".format(i)
                 torch.save(self.model.state_dict(), path)
                 self.log.info("save model: {}".format(path))
         self.log.info("optimize done...")
         path = self.sp.save_prefix + "_final.pkl"
         torch.save(self.model.state_dict(), path)
-        sefl.log.info("save final pkl...")
-
-
+        self.log.info("save final pkl...")
 
 
 if __name__ == '__main__':

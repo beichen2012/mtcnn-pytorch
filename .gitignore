@@ -2,3 +2,4 @@
 dataset/
 __pycache__/
 models/
+*.log

@@ -13,7 +13,7 @@ test_batch = 555
 test_iter = 10000
 
 test_interval = 50000
-display = 1000
+display = 100
 
 # learning rate
 base_lr = 0.1
@@ -51,5 +51,5 @@ if __name__ == '__main__':
                      test_iter, test_interval,
                      train_batch, max_iter, display, save_interval, save_prefix)
 
-    t = TrainInst(model, device, ds, sp, log)
+    t = TrainInst(model, device, ds, sp, log, INPUT_IMAGE_SIZE)
     t.run()

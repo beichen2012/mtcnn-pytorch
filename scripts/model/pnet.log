@@ -1,2 +1,5 @@
-2018-09-21 11:49:22,609 - train.py[line:60] - INFO: train net -> iter: 0, lr: 0.1, cls loss: 0.6741, cls acc: 0.6000, bbox loss: 0.1009
-2018-09-21 12:00:27,826 - train.py[line:60] - INFO: train net -> iter: 0, lr: 0.1, cls loss: 0.7235, cls acc: 0.2000, bbox loss: 0.0859
+2018-09-21 15:36:42,563 - train.py[line:65] - INFO: train net -> iter: 0, lr: 0.1, cls loss: 0.7133, cls acc: 0.2000, bbox loss: 0.0774, bbox map: 0.4340
+2018-09-21 15:36:50,345 - train.py[line:65] - INFO: train net -> iter: 100, lr: 0.1, cls loss: 0.3940, cls acc: 0.6595, bbox loss: 0.0524, bbox map: 0.4183
+2018-09-21 15:36:58,102 - train.py[line:65] - INFO: train net -> iter: 200, lr: 0.1, cls loss: 0.3168, cls acc: 0.6901, bbox loss: 0.0500, bbox map: 0.4216
+2018-09-21 15:37:05,763 - train.py[line:65] - INFO: train net -> iter: 300, lr: 0.1, cls loss: 0.3007, cls acc: 0.7063, bbox loss: 0.0508, bbox map: 0.4240
+2018-09-21 15:37:13,680 - train.py[line:65] - INFO: train net -> iter: 400, lr: 0.1, cls loss: 0.3018, cls acc: 0.6919, bbox loss: 0.0520, bbox map: 0.4116
