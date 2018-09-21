@@ -1,0 +1,2 @@
+2018-09-21 11:49:22,609 - train.py[line:60] - INFO: train net -> iter: 0, lr: 0.1, cls loss: 0.6741, cls acc: 0.6000, bbox loss: 0.1009
+2018-09-21 12:00:27,826 - train.py[line:60] - INFO: train net -> iter: 0, lr: 0.1, cls loss: 0.7235, cls acc: 0.2000, bbox loss: 0.0859
