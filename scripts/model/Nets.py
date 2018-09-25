@@ -44,14 +44,17 @@ class PNet(nn.Module):
         return cls, bbox
 
 
-def AddClsLoss(pred, label):
+def AddClsLoss(pred, label, k):
     # pred: 5 * 2 * 1 * 1
     idx = label < 2
     label_use = label[idx]
     pred_use = pred[idx]
     pred_log = torch.log(pred_use)
     pred_freeze = torch.squeeze(pred_log)
-    loss = F.nll_loss(pred_freeze, label_use)
+    loss = F.nll_loss(pred_freeze, label_use, reduction='none')
+    topk = int(k * loss.size(0))
+    loss, _ = torch.topk(loss, topk)
+    loss = torch.mean(loss)
     return loss
 
 
@@ -63,7 +66,7 @@ def AddClsAccuracy(pred, label):
     pred_idx = torch.argmax(pred_s, dim=1)
     c = pred_idx.eq(label_use)
     s = torch.sum(c)
-    n = pred.size(0)
+    n = pred_use.size(0)
     return float(s.item()) / float(n)
 
 

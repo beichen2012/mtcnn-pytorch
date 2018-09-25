@@ -10,7 +10,7 @@ class SolverParam:
     def __init__(self, base_lr, momentum, stepsize,
                  gamma, test_batch, test_iter, test_interval,
                  train_batch, max_iter, display,
-                 save_interval, save_prefix):
+                 save_interval, save_prefix, topk):
         self.base_lr = base_lr
         self.momentum = momentum
         self.stepsize = stepsize
@@ -25,6 +25,7 @@ class SolverParam:
         self.display = display
         self.save_interval = save_interval
         self.save_prefix = save_prefix
+        self.topk = topk
 
 
 class TrainInst:
@@ -50,7 +51,7 @@ class TrainInst:
 
         self.opter.zero_grad()
         pred_cls, pred_bbox = self.model(data)
-        loss_cls = AddClsLoss(pred_cls, label)
+        loss_cls = AddClsLoss(pred_cls, label, self.sp.topk)
         loss_box = AddRegLoss(pred_bbox, label, bbox)
         loss = loss_cls + loss_box
         loss.backward()
@@ -80,7 +81,7 @@ class TrainInst:
                 label = torch.from_numpy(label).to(self.device)
                 bbox = torch.from_numpy(bbox).to(self.device)
                 pred_cls, pred_bbox = self.model(data)
-                loss_cls = AddClsLoss(pred_cls, label)
+                loss_cls = AddClsLoss(pred_cls, label, self.sp.topk)
                 loss_box = AddRegLoss(pred_bbox, label, bbox)
                 acc = AddClsAccuracy(pred_cls, label)
                 map = AddBoxMap(pred_bbox, label, bbox, self.image_size, self.image_size)

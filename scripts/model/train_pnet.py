@@ -13,7 +13,7 @@ test_batch = 555
 test_iter = 10000
 
 test_interval = 50000
-display = 100
+display = 500
 
 # learning rate
 base_lr = 0.1
@@ -24,13 +24,15 @@ gamma = 0.1
 
 save_interval = 50000
 #50000
-save_prefix = "./models/pnet_20180921"
+save_prefix = "./models/pnet_20180925"
 
-device = torch.device('cuda:0')
+device = torch.device('cpu')
 model = PNet()
 # 数据源
 root_dir = r"../../dataset/"
 INPUT_IMAGE_SIZE = 12
+
+topk = 0.7
 
 train_anno_path = []
 val_anno_path = []
@@ -49,7 +51,7 @@ if __name__ == '__main__':
 
     sp = SolverParam(base_lr, momentum, stepsize, gamma, test_batch,
                      test_iter, test_interval,
-                     train_batch, max_iter, display, save_interval, save_prefix)
+                     train_batch, max_iter, display, save_interval, save_prefix, topk)
 
     t = TrainInst(model, device, ds, sp, log, INPUT_IMAGE_SIZE)
     t.run()
