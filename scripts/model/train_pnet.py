@@ -8,8 +8,8 @@ from Logger import *
 log = Logger("pnet.log", level='debug').logger
 
 max_iter = 800000
-train_batch = 555
-test_batch = 555
+train_batch = 768
+test_batch = 384
 test_iter = 10000
 
 test_interval = 50000
@@ -19,14 +19,14 @@ display = 500
 base_lr = 0.1
 momentum = 0.9
 
-stepsize = [50000, 100000, 200000, 300000, 400000,500000,600000]
+stepsize = [10000, 50000, 100000, 250000, 400000,500000,600000]
 gamma = 0.1
 
 save_interval = 50000
 #50000
-save_prefix = "./models/pnet_20180925"
+save_prefix = "./models/pnet_20180926"
 
-device = torch.device('cpu')
+device = torch.device('cuda:0')
 model = PNet()
 # 数据源
 root_dir = r"../../dataset/"

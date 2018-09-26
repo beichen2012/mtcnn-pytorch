@@ -12,6 +12,20 @@ import numpy as np
 import cv2
 import random
 import os
+import imgaug as ia
+from imgaug import augmenters as iaa
+
+# 图像预处理
+ia.seed(1)
+seq = iaa.Sequential([
+    # flip lr
+    iaa.Fliplr(0.5)
+   #iaa.CoarseDropout((0.0, 0.05), size_percent=(0.02, 0.25))
+    #iaa.Sometimes(
+    #    0.5,
+    #    iaa.GaussianBlur(sigma=(0, 1.0))
+    #),
+])
 
 
 class DataSource:
@@ -53,8 +67,8 @@ class DataSource:
         :return:
         '''
         #0，分割样本个数
-        neg_num = batch_size // 5 * 3
-        pos_num = batch_size // 5
+        neg_num = batch_size // 3
+        pos_num = batch_size // 3
         part_num = batch_size - neg_num - pos_num
 
         # 1, 准备样本标注文件
@@ -102,7 +116,7 @@ class DataSource:
         ## 3. split to data, label, bbox
         data = []
         label = []
-        bbox = []
+        bbox_pts = []
         for line in batch_anno:
             i = line.strip()
             i = i.split()
@@ -126,17 +140,28 @@ class DataSource:
             label += [dl]
 
             # add bbox to aug
-            # bbox_pts += [ia.BoundingBoxesOnImage(
-            #     [ia.BoundingBox(x0, y0, x0 + w0, y0 + h0)], shape=img.shape)]
-            bbox += [(x0, y0, w0, h0)]
+            bbox_pts += [ia.BoundingBoxesOnImage(
+                [ia.BoundingBox(x0, y0, x0 + w0, y0 + h0)], shape=img.shape)]
 
         # data augment
-        for i in range(len(data)):
-            if random.random() > 0.5:
-                data[i] = cv2.flip(data[i], 1)
-                x0, y0, w0, h0 = bbox[i]
-                y0 = int(self.image_size - y0)
-                bbox[i] = (x0, y0, w0, h0)
+        data = seq.augment_images(data)
+        bbox_pts = seq.augment_bounding_boxes(bbox_pts)
+        # retrive bbox
+        bbox = []
+        for i in bbox_pts:
+            ox = i.bounding_boxes[0].x1
+            oy = i.bounding_boxes[0].y1
+            ow = i.bounding_boxes[0].x2 - ox
+            oh = i.bounding_boxes[0].y2 - oy
+
+            bbox += [(ox, oy, ow, oh)]
+
+        # for i in range(len(data)):
+        #     if random.random() > 0.5:
+        #         data[i] = cv2.flip(data[i], 1)
+        #         x0, y0, w0, h0 = bbox[i]
+        #         x0 = int(self.image_size - x0 - 1)
+        #         bbox[i] = (x0, y0, w0, h0)
 
         # scale and resize
         assert (len(data) == len(bbox))
