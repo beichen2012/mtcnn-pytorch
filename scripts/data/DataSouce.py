@@ -88,7 +88,7 @@ class DataSource(data.Dataset):
     def get_sample(self, line):
         sample = line.strip().split()
         img = cv2.imread(os.path.join(self.root_dir, sample[0]), 1)
-        target = [float(i) for i in sample[1:]]
+        target = np.array([float(i) for i in sample[1:]])
 
         if self.transform:
             img, target = self.transform(img, target)
@@ -106,6 +106,6 @@ class DataSource(data.Dataset):
             targets += [target]
 
         imgs = np.array(imgs)
-        targets = np.array(targets)
+        targets = np.array(targets).astype(np.float32)
 
-        return torch.from_numpy(imgs).permute(2, 0, 1), torch.from_numpy(targets)
+        return torch.from_numpy(imgs), torch.from_numpy(targets)

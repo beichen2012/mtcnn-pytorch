@@ -50,9 +50,8 @@ def AddClsLoss(pred, targets, k):
     idx = label < 2
     label_use = label[idx]
     pred_use = pred[idx]
-    pred_log = torch.log(pred_use)
-    pred_freeze = torch.squeeze(pred_log)
-    loss = F.nll_loss(pred_freeze, label_use, reduction='none')
+    pred_use = torch.squeeze(pred_use)
+    loss = F.cross_entropy(pred_use, label_use, reduction='none')
     topk = int(k * loss.size(0))
     loss, _ = torch.topk(loss, topk)
     loss = torch.mean(loss)
@@ -73,15 +72,17 @@ def AddClsAccuracy(pred, targets):
 
 
 def AddRegLoss(pred, targets):
-    label = targets[:, -1]
+    label = targets[:, -1].long()
     bbox = targets[:, 0:4]
     # pred: N * 4 * 1 * 1
     idx = label > 0
     bbox_use = bbox[idx]
     pred_use = pred[idx]
     pred_squeeze = torch.squeeze(pred_use)
-    return F.mse_loss(pred_squeeze, bbox_use)
-    # return F.smooth_l1_loss(pred_squeeze, bbox_use)
+    # loss = F.mse_loss(pred_squeeze, bbox_use)
+    loss = F.smooth_l1_loss(pred_squeeze, bbox_use)
+    return loss
+    # return
 
 def AddBoxMap(pred, target, image_width, image_height):
     label = target[:, -1].long()
@@ -96,14 +97,21 @@ def AddBoxMap(pred, target, image_width, image_height):
     bbox_use = bbox_use.cpu().detach().numpy()
     # calc ap
     map = 0.0
-    pred_squeeze[:, [0, 2]] *= image_width
-    pred_squeeze[:, [1, 3]] *= image_height
-    bbox_use[:, [0, 2]] *= image_width
-    bbox_use[:, [1, 3]] *= image_height
+    pred_squeeze[:, 0] *= image_width
+    pred_squeeze[:, 1] *= image_height
+    bbox_use[:, 0] *= image_width
+    bbox_use[:, 1] *= image_height
     num = bbox_use.shape[0]
     for i in range(num):
         b1 = pred_squeeze[i]
         b2 = bbox_use[i]
+
+        b1[2] = np.exp(b1[2]) * image_width
+        b1[3] = np.exp(b1[3]) * image_height
+
+        b2[2] = np.exp(b2[2]) * image_width
+        b2[3] = np.exp(b2[3]) * image_height
+
         map += IOU(b1, b2)
 
     return map / num

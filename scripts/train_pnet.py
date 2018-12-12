@@ -1,5 +1,6 @@
 # coding: utf-8
-# coding: utf-8
+import sys
+sys.path.append(sys.path[0] + "/../")
 from data.DataSouce import DataSource
 from data.augmentation import *
 import os
@@ -28,7 +29,7 @@ device = torch.device("cuda" if torch.cuda.is_available() and USE_CUDA else "cpu
 pre_checkpoint = None
 resume = False
 
-train_batch = 5
+train_batch = 500
 display = 100
 
 base_lr = 0.01
@@ -40,6 +41,9 @@ stepsize = [50000, 90000, 120000, 150000]
 max_iter = 170000
 
 save_interval = 10000
+test_interval = 10000
+test_iter = 5000
+test_batch = 500
 
 save_dir = "./models"
 if not os.path.exists(save_dir):
@@ -47,7 +51,7 @@ if not os.path.exists(save_dir):
 save_prefix = save_dir + "/pnet_20181212"
 
 
-root_dir = r"../../dataset/"
+root_dir = r"../dataset/"
 INPUT_IMAGE_SIZE = 12
 
 topk = 0.7
@@ -64,14 +68,42 @@ val_anno_path += [os.path.join(root_dir, "val_pos_p.txt")]
 val_anno_path += [os.path.join(root_dir, "val_part_p.txt")]
 val_anno_path += [os.path.join(root_dir, "val_neg_p.txt")]
 
+def val(dataset, net):
+    aloss = []
+    aloss_cls = []
+    aloss_reg = []
+    aacc_cls = []
+    aacc_reg = []
+    for val_iter in range(test_iter):
+        net.eval()
+        images, targets = dataset.getbatch(test_batch)
+        images = images.to(device)
+        targets = targets.to(device)
+
+        pred_cls, pred_bbox = net(images)
+        loss_cls = AddClsLoss(pred_cls, targets, topk)
+        loss_reg = AddRegLoss(pred_bbox, targets)
+        loss = loss_cls + loss_reg
+
+        aloss += [loss.item()]
+        aloss_cls += [loss_cls.item()]
+        aloss_reg += [loss_reg.item()]
+
+        aacc_cls += [AddClsAccuracy(pred_cls, targets)]
+        aacc_reg += [AddBoxMap(pred_bbox, targets, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)]
+    return np.array(aloss).mean(), np.array(aloss_cls).mean(), np.array(aloss_reg).mean(), np.array(aacc_cls).mean(), np.array(aacc_reg).mean()
+
+
 def train():
     start_epoch = 0
     # dataset
     train_dataset = DataSource(root_dir, train_anno_path, transform=Compose([
-        RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords()
+        RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
     ]))
 
-    val_dataset = DataSource(root_dir, val_anno_path, transform=None, shuffle=False)
+    val_dataset = DataSource(root_dir, val_anno_path, transform=Compose([
+        RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
+    ]), shuffle=False)
 
     # net
     net = PNet()
@@ -104,38 +136,37 @@ def train():
         images = images.to(device)
         targets = targets.to(device)
 
-        out = net(images)
-
         optimizer.zero_grad()
 
-        loss_cls = AddClsLoss(out, targets, topk)
-        loss_reg = AddRegLoss(out, targets)
+        pred_cls, pred_bbox = net(images)
 
+        loss_cls = AddClsLoss(pred_cls, targets, topk)
+        loss_reg = AddRegLoss(pred_bbox, targets)
         loss = loss_cls + loss_reg
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), clip_grad)
+
         optimizer.step()
         scheduler.step()
 
-        # if k % display == 0:
-        #     log.info(
-        #         "iter/epoch: {}/{}, lr: {}, loss: {:.4f},arm_loc: {:.4f}, arm_conf: {:.4f},odm_loc: {:.4f}, odm_conf: {:.4f},time/iter: {:.3f} s".format(
-        #             k,
-        #             epoch,
-        #             optimizer.param_groups[0]['lr'],
-        #             loss.item(),
-        #             arm_loss_l.item(),
-        #             arm_loss_c.item(),
-        #             odm_loss_l.item(),
-        #             odm_loss_c.item(),
-        #             t1 - t0))
-        # if k % save_interval == 0:
-        #     path = save_prefix + "_iter_{}.pkl".format(k)
-        #     SaveCheckPoint(path, net, optimizer, scheduler, epoch)
-        #     log.info("=> save model: {}".format(path))
-        # k += 1
+        if k% display == 0:
+            acc_cls = AddClsAccuracy(pred_cls, targets)
+            acc_reg = AddBoxMap(pred_bbox, targets, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)
 
+            log.info("train iter: {}, lr: {}, loss: {:.4f}, cls loss: {:.4f}, bbox loss: {:.4f}, cls acc: {:.4f}, bbox acc: {:.4f}".format(
+                k, optimizer.param_groups[0]['lr'], loss.item(), loss_cls.item(), loss_reg.item(), acc_cls, acc_reg))
+
+        if k % save_interval == 0:
+            path = save_prefix + "_iter_{}.pkl".format(k)
+            SaveCheckPoint(path, net, optimizer, scheduler, epoch)
+            log.info("=> save model: {}".format(path))
+
+        if k % test_interval == 0 and k != 0:
+            out = val(val_dataset, net)
+            log.info("=> test iter: {}, lr: {}, loss: {:.4f}, cls loss: {:.4f}, bbox loss: {:.4f}, cls acc: {:.4f}, bbox acc: {:.4f}".format(
+                k, optimizer.param_groups[0]['lr'], out[0], out[1], out[2], out[3], out[4]))
+        k += 1
 
     log.info("optimize done...")
     path = save_prefix + "_final.pkl"
@@ -145,79 +176,3 @@ def train():
 
 if __name__ == '__main__':
     train()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#
-#
-# import os
-# import torch
-# from Nets import *
-# from DataSource import *
-# from train import *
-# from Logger import *
-# log = Logger("pnet.log", level='debug').logger
-#
-# max_iter = 800000
-# train_batch = 1000
-# test_batch = 500
-# test_iter = 10000
-#
-# test_interval = 50000
-# display = 500
-#
-# # learning rate
-# base_lr = 0.1
-# momentum = 0.9
-#
-# stepsize = [10000, 50000, 100000, 250000, 400000,500000,600000]
-# gamma = 0.1
-#
-# save_interval = 50000
-# #50000
-# save_prefix = "./models/pnet_20180926"
-#
-# device = torch.device('cuda:0')
-# model = PNet()
-# # 数据源
-# root_dir = r"../../dataset/"
-# INPUT_IMAGE_SIZE = 12
-#
-# topk = 0.7
-#
-# train_anno_path = []
-# val_anno_path = []
-# train_anno_path += [os.path.join(root_dir, "train_neg_p.txt")]
-# train_anno_path += [os.path.join(root_dir, "train_pos_p.txt")]
-# train_anno_path += [os.path.join(root_dir, "train_part_p.txt")]
-#
-# val_anno_path += [os.path.join(root_dir, "val_neg_p.txt")]
-# val_anno_path += [os.path.join(root_dir, "val_pos_p.txt")]
-# val_anno_path += [os.path.join(root_dir, "val_part_p.txt")]
-#
-#
-# if __name__ == '__main__':
-#
-#     ds = DataSource(root_dir, train_anno_path, val_anno_path, 127.5, 0.0078125, INPUT_IMAGE_SIZE)
-#
-#     sp = SolverParam(base_lr, momentum, stepsize, gamma, test_batch,
-#                      test_iter, test_interval,
-#                      train_batch, max_iter, display, save_interval, save_prefix, topk)
-#
-#     t = TrainInst(model, device, ds, sp, log, INPUT_IMAGE_SIZE)
-#     t.run()

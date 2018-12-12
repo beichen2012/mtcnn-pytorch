@@ -10,17 +10,24 @@ class RandomMirror(object):
         if random.random() < self.p:
             image = image[:, ::-1]
             target = target.copy()
-            target[:, [0, 2]] = width - target[:, [2, -2]]
+            target[[0, 2]] = width - target[[2, 0]]
         return image, target
 
 
 class ToPercentCoords(object):
     def __call__(self, image, target):
         height, width, channels = image.shape
-        target[:, 0] /= width
-        target[:, 2] /= width
-        target[:, 1] /= height
-        target[:, 3] /= height
+        # to x,y,w,h
+        target[2] = target[2] - target[0]
+        target[3] = target[3] - target[1]
+        # div size
+        target[0] /= width
+        target[2] /= width
+        target[1] /= height
+        target[3] /= height
+        # w,h to log
+        target[2] = np.log(target[2])
+        target[3] = np.log(target[3])
 
         return image, target
 
@@ -28,10 +35,15 @@ class SubtractFloatMeans(object):
     def __init__(self, mean):
         self.mean = np.array(mean, dtype=np.float32)
 
-    def __call__(self, image, boxes=None, labels=None):
+    def __call__(self, image, targets):
         image = image.astype(np.float32)
         image -= self.mean
-        return image.astype(np.float32), boxes, labels
+        return image.astype(np.float32), targets
+
+class PermuteCHW(object):
+    def __call__(self, image, targets):
+        image = image.swapaxes(1,2).swapaxes(0,1)
+        return image, targets
 
 class Compose(object):
     def __init__(self, transforms):
