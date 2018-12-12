@@ -2,9 +2,16 @@
 """
 compose and split the whole dataset to train,val
 """
+import sys
+sys.path.append(sys.path[0] + "/../")
 import os
 import random
-import glog as log
+import time
+from util.Logger import Logger
+if not os.path.exists("./log"):
+    os.mkdir("./log")
+log = Logger("./log/{}_{}.log".format(__file__.split('/')[-1],
+                                      time.strftime("%Y%m%d-%H%M%S"), time.localtime), level='debug').logger
 import numpy as np
 
 # PNET, RNET , ONET
@@ -18,7 +25,7 @@ else:
     postfix = 'o'
 
 
-root_dir = "../dataset"
+root_dir = "../../dataset"
 pos_re_dir = "train_faces_{}/pos/".format(postfix)
 neg_re_dir = "train_faces_{}/neg/".format(postfix)
 part_re_dir = "train_faces_{}/part/".format(postfix)
