@@ -10,7 +10,7 @@ class PNet(nn.Module):
     """
     pnet definition
     """
-    def __init__(self):
+    def __init__(self, test=False):
         super(PNet, self).__init__()
         self.features = nn.Sequential(
             # 3*12*12 -> 10*5*5
@@ -28,8 +28,7 @@ class PNet(nn.Module):
 
         # cls
         self.classifier = nn.Sequential(
-            nn.Conv2d(32, 2, kernel_size=1, stride=1, padding=0),
-            nn.Softmax2d()
+            nn.Conv2d(32, 2, kernel_size=1, stride=1, padding=0)
         )
 
         # regression
@@ -37,10 +36,16 @@ class PNet(nn.Module):
             nn.Conv2d(32, 4, kernel_size=1, stride=1, padding=0)
         )
 
+        self.test = test
+        if test:
+            self.softmax = nn.Softmax2d()
+
     def forward(self, data):
         y = self.features(data)
         cls = self.classifier(y)
         bbox = self.regressioner(y)
+        if self.test:
+            cls = self.softmax(cls)
         return cls, bbox
 
 
