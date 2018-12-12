@@ -10,6 +10,7 @@ class PNet(nn.Module):
     """
     pnet definition
     """
+
     def __init__(self, test=False):
         super(PNet, self).__init__()
         self.features = nn.Sequential(
@@ -47,6 +48,84 @@ class PNet(nn.Module):
         if self.test:
             cls = self.softmax(cls)
         return cls, bbox
+
+
+class RNet(nn.Module):
+    def __init__(self, test=False):
+        super(RNet, self).__init__()
+        self.test = test
+
+        self.extractor = nn.Sequential(
+            nn.Conv2d(3, 28, kernel_size=3, stride=1, padding=0),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(28, 48, kernel_size=3, stride=1, padding=0),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+
+            nn.Conv2d(48, 64, kernel_size=2, stride=1, padding=0),
+            nn.PReLU(),
+
+            nn.Linear(64 * 3 * 3, 128),
+            nn.PReLU(),
+        )
+
+        self.cls = nn.Linear(128, 2)
+        self.reg = nn.Linear(128, 4)
+
+        if test:
+            self.softmax = nn.Softmax()
+
+    def forward(self, x):
+        x = self.extractor(x)
+        x = x.contiguous().view(x.size(0), -1)
+        cls = self.cls(x)
+        reg = self.reg(x)
+        if self.test:
+            cls = self.softmax(cls)
+        return cls, reg
+
+class ONet(nn.Module):
+    def __init__(self, test):
+        super(ONet, self).__init__()
+
+        self.test = test
+        if test:
+            self.softmax = nn.Softmax()
+
+        self.extractor = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=0),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
+
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=0),
+
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(64, 128, kernel_size=2, stride=1),
+            nn.PReLU(),
+
+            nn.Linear(128 * 3 * 3, 256),
+            nn.PReLU()
+        )
+
+        self.cls = nn.Linear(256, 2)
+        self.reg = nn.Linear(256, 4)
+
+    def forward(self, x):
+        x = self.extractor(x)
+        x = x.contiguous().view(x.size(0), -1)
+        cls = self.cls(x)
+        reg = self.reg(x)
+        if self.test:
+            cls = self.softmax(cls)
+        return cls, reg 
+
 
 
 def AddClsLoss(pred, targets, k):
@@ -88,6 +167,7 @@ def AddRegLoss(pred, targets):
     loss = F.smooth_l1_loss(pred_squeeze, bbox_use)
     return loss
     # return
+
 
 def AddBoxMap(pred, target, image_width, image_height):
     label = target[:, -1].long()
