@@ -5,22 +5,23 @@
 正样本标签为：1
 负样本标签为：0
 部分人脸样本标签为：2
-综合标签为： img_path label x y w h
+综合标签为： img_path xmin, ymin, xmax, ymax, label
 例如： 1.jpg 1 -1 2 10 11
 注意：保存的图片缩放到了N*N，bbox坐标也是相对于小图的，但是未做scale
 """
-
+import sys
+sys.path.append(sys.path[0] + "/../")
 import os
 import numpy as np
 import random
 import cv2
-import glog as log
-from caffe2.python import core
-from caffe2.proto import caffe2_pb2
-from MTCNN import MTCNN, square_bbox, pad_bbox
-from Caffe2Predictor import C2Predictor
-from model.utility import IOU, Rectrect
-
+from util.Logger import Logger
+import time
+if not os.path.exists("./log"):
+    os.mkdir("./log")
+log = Logger("./log/{}_{}.log".format(__file__.split('/')[-1],
+                                      time.strftime("%Y%m%d-%H%M%S"), time.localtime), level='debug').logger
+from MTCNN import *
 
 
 # 小于该人脸的就不要了
@@ -29,19 +30,24 @@ IOU_POS_THRES = 0.65
 IOU_NEG_THRES = 0.3
 IOU_PART_THRES = 0.4
 
-OUT_IMAGE_SIZE = 48
 net_type = "RNET"
+if net_type == "RNET":
+    OUT_IMAGE_SIZE = 24
+    post_fix = 'r'
+else:
+    OUT_IMAGE_SIZE = 48
+    post_fix = 'o'
 
 # path to wider face
-#root_dir = r'/home/beichen2012/dataset/WIDER_FACE'
-root_dir = r'/homec/wyj/dataset/WiderFace'
-#root_dir = r"E:\yingjun.wang\datasets\WIDER-FACE"
+root_dir = r'~/dataset/WIDER_FACE'
+root_dir = os.path.expanduser(root_dir)
+
 train_dir = os.path.join(root_dir, 'WIDER_train/images')
 val_dir = os.path.join(root_dir, 'WIDER_val/images')
 anno_dir = os.path.join(root_dir, 'wider_face_split')
 
 # path to output root dir
-output_root_dir = r"../dataset/train_faces_o"
+output_root_dir = r"../dataset/train_faces_{}".format(post_fix)
 if not os.path.exists(output_root_dir):
     os.mkdir(output_root_dir)
 
@@ -135,7 +141,7 @@ def GenerateData(mt):
                     if ret:
                         neg_idx += 1
                         # line: output_filename 0 0 0 0 0
-                        fanno_neg.write(output_filename + ' 0 0 0 1 1\n')
+                        fanno_neg.write(output_filename + ' 0 0 1 1 0\n')
                 continue
 
             # 遍历并判断交并比，来确定是正样本，负样本还是部分人脸样本
@@ -165,7 +171,7 @@ def GenerateData(mt):
                     if ret:
                         neg_idx += 1
                         # line: output_filename 0 0 0 0 0
-                        fanno_neg.write(output_filename + ' 0 0 0 1 1\n')
+                        fanno_neg.write(output_filename + ' 0 0 1 1 0\n')
                     continue
                 # 正样本与部分人脸
                 ## iou最大的真值框
@@ -197,6 +203,12 @@ def GenerateData(mt):
                 ow = ow / scalor
                 oh = oh / scalor
 
+                # # 这里保存成左上角点和右下角点
+                xmin = ox
+                ymin = oy
+                xmax = xmin + ow
+                ymax = ymin + oh
+
                 ## 判断交并比
                 if np.max(ious) > IOU_POS_THRES:
                     #### 正样本
@@ -208,7 +220,7 @@ def GenerateData(mt):
                     if ret:
                         pos_idx += 1
                         # line: output_filename 0 0 0 0 0
-                        fanno_pos.write(output_filename + ' 1 {} {} {} {}\n'.format(ox, oy, ow, oh))
+                        fanno_pos.write(output_filename + ' {} {} {} {} 1\n'.format(xmin, ymin, xmax, ymax))
                 elif np.max(ious) > IOU_PART_THRES:
                     #### 部分样本
                     output_filename = os.path.splitext(filename)[0]
@@ -219,7 +231,7 @@ def GenerateData(mt):
                     if ret:
                         part_idx += 1
                         # line: output_filename 0 0 0 0 0
-                        fanno_part.write(output_filename + ' 2 {} {} {} {}\n'.format(ox, oy, ow, oh))
+                        fanno_part.write(output_filename + ' {} {} {} {} 2\n'.format(xmin, ymin, xmax, ymax))
 
     # over
     fanno_pos.close()
@@ -228,23 +240,25 @@ def GenerateData(mt):
     not_reg_file.close()
 
 if __name__ == "__main__":
-    core.GlobalInit(["GenerateRONetData", "--caffe2_log_level=0"])
-    do = core.DeviceOption(caffe2_pb2.CUDA, 3)
-
+    USE_CUDA = True
+    GPU_ID = [0]
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(i) for i in GPU_ID])
+    device = torch.device("cuda:0" if torch.cuda.is_available() and USE_CUDA else "cpu")
     # pnet
-    pnet_init_path = r"model/models/pnet_20180815_init_net_final.pb"
-    pnet_predict_path = r"model/models/pnet_20180815_predict_net.pb"
-    pnet_det = C2Predictor(pnet_init_path, pnet_predict_path, 127.5, 0.0078125, do)
+    pnet_weight_path = "./models/pnet_20181212_final.pkl"
+    pnet = PNet(test=True)
+    LoadWeights(pnet_weight_path, pnet)
+    pnet.to(device)
 
     # rnet
-    rnet_det = None
-    if net_type != "PNET":
-        rnet_init_path = r"model/models/rnet_20180815_init_net_final.pb"
-        rnet_predict_path = r"model/models/rnet_20180815_predict_net.pb"
-        rnet_det = C2Predictor(rnet_init_path, rnet_predict_path, 127.5, 0.0078125, do)
+    rnet = None
+    if net_type == "ONET":
+        rnet_weight_path = "./models/rnet_20181212_final.pkl"
+        rnet = RNet(test=True)
+        LoadWeights(rnet_weight_path, rnet)
+        rnet.to(device)
 
-    # build detector
-    detector = [pnet_det, rnet_det, None]
-    mt = MTCNN(detector, min_face_size=24, threshold=[0.5,0.5,0,5])
+    mt = MTCNN(detectors=[pnet, rnet, None], min_face_size=24, threshold=[0.5, 0.5, 0.5], device=device)
     GenerateData(mt)
     log.info("over...")
