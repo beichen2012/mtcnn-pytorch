@@ -32,7 +32,7 @@ IOU_NEG_THRES = 0.3
 IOU_PART_THRES = 0.4
 
 ## 负样本个数
-neg_samples = 50
+neg_samples = 70
 ## 正样本个数
 pos_samples = 20
 
@@ -47,7 +47,7 @@ val_dir = os.path.join(root_dir, 'WIDER_val/images')
 anno_dir = os.path.join(root_dir, 'wider_face_split')
 
 # path to output root dir
-output_root_dir = r"../../dataset/train_faces_p"
+output_root_dir = r"../dataset/train_faces_p"
 if not os.path.exists(output_root_dir):
     os.mkdir(output_root_dir)
 
@@ -146,7 +146,7 @@ with open(anno_file, "r") as f:
             if np.max((w,h)) < MIN_FACE_SIZE or x < 0 or y < 0:
                 continue
             ### 生成与box有重叠的负样本（个数随机，不用太多）
-            for i in range(5):
+            for i in range(10):
                 size = random.randrange(OUT_IMAGE_SIZE, int(np.min((W, H)) / 2))
                 dx = random.randrange(int(np.max((-size, -x))), w)
                 dy = random.randrange(int(np.max((-size, -y))), h)

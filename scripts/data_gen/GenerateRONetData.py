@@ -74,6 +74,9 @@ def GenerateData(mt):
     fanno_part = open(label_part, "w")
     anno_file = os.path.join(anno_dir, "wider_face_train_bbx_gt.txt")
     not_reg_file = open('no_reg.txt', 'w')
+    global_neg_idx = 0
+    global_pos_idx = 0
+    global_part_idx = 0
     with open(anno_file, "r") as f:
         while True:
             filename = f.readline()
@@ -232,7 +235,10 @@ def GenerateData(mt):
                         part_idx += 1
                         # line: output_filename 0 0 0 0 0
                         fanno_part.write(output_filename + ' {} {} {} {} 2\n'.format(xmin, ymin, xmax, ymax))
-
+            global_neg_idx += neg_idx
+            global_pos_idx += pos_idx
+            global_part_idx += part_idx
+            log.info("neg num: {}, pos num:{}, part num: {}".format(global_neg_idx, global_pos_idx, global_part_idx))
     # over
     fanno_pos.close()
     fanno_neg.close()

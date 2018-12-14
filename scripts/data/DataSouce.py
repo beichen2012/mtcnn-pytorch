@@ -8,10 +8,11 @@ import torch.utils.data as data
 
 
 class DataSource(data.Dataset):
-    def __init__(self, root_dir, data_file, transform=None, shuffle=True):
+    def __init__(self, root_dir, data_file, transform=None, shuffle=True, ratio=3):
         self.root_dir = root_dir
         self.transform = transform
-        self.shuffle=shuffle
+        self.shuffle = shuffle
+        self.ratio = int(ratio)
 
         self.pos = []
         self.part = []
@@ -32,8 +33,8 @@ class DataSource(data.Dataset):
 
     def prepare_batch_sample(self, batch_size):
         # 0，分割样本个数
-        neg_num = batch_size // 5 * 3
-        part_num = batch_size // 5
+        neg_num = batch_size // (self.ratio + 2) * self.ratio
+        part_num = batch_size // (self.ratio + 2)
         pos_num = batch_size - neg_num - part_num
 
         # neg
