@@ -29,44 +29,45 @@ device = torch.device("cuda" if torch.cuda.is_available() and USE_CUDA else "cpu
 pre_checkpoint = None
 resume = False
 
-train_batch = 600
+train_batch = 400
 display = 100
 
-base_lr = 0.01
+base_lr = 0.001
 clip_grad = 120.0
 momentum = 0.9
 gamma = 0.1
 weight_decay = 0.0005
-stepsize = [12000, 24000, 36000, 48000, 60000]
-max_iter = 72000
+stepsize = [60000, 110000, 150000, 180000]
+max_iter = 200000
 
-save_interval = 12000
-test_interval = 12000
-test_iter = 100
-test_batch = 600
+save_interval = 10000
+test_interval = 10000
+test_iter = 500
+test_batch = 400
 
+prefix = "r"
 save_dir = "./models"
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
-save_prefix = save_dir + "/pnet_20181215"
+save_prefix = save_dir + "/{}net_20181215".format(prefix)
 
 
 root_dir = r"../dataset/"
-INPUT_IMAGE_SIZE = 12
+INPUT_IMAGE_SIZE = 24
 
 topk = 0.7
 MEANS = [127.5,127.5,127.5]
 train_anno_path = []
 val_anno_path = []
 
-train_anno_path += [os.path.join(root_dir, "train_pos_p.txt")]
-train_anno_path += [os.path.join(root_dir, "train_part_p.txt")]
-train_anno_path += [os.path.join(root_dir, "train_neg_p.txt")]
+train_anno_path += [os.path.join(root_dir, "train_pos_{}.txt".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_part_{}.txt".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_neg_{}.txt".format(prefix))]
 
 
-val_anno_path += [os.path.join(root_dir, "val_pos_p.txt")]
-val_anno_path += [os.path.join(root_dir, "val_part_p.txt")]
-val_anno_path += [os.path.join(root_dir, "val_neg_p.txt")]
+val_anno_path += [os.path.join(root_dir, "val_pos_{}.txt".format(prefix))]
+val_anno_path += [os.path.join(root_dir, "val_part_{}.txt".format(prefix))]
+val_anno_path += [os.path.join(root_dir, "val_neg_{}.txt".format(prefix))]
 
 def val(dataset, net):
     aloss = []
@@ -99,14 +100,14 @@ def train():
     # dataset
     train_dataset = DataSource(root_dir, train_anno_path, transform=Compose([
         RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
-    ]), ratio=8)
+    ]), ratio=2)
 
     val_dataset = DataSource(root_dir, val_anno_path, transform=Compose([
         RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
-    ]), shuffle=False, ratio=1)
+    ]), ratio=2)
 
     # net
-    net = PNet()
+    net = RNet()
 
     # optimizer and scheduler
     optimizer = optim.SGD(net.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay)
@@ -142,7 +143,7 @@ def train():
 
         loss_cls = AddClsLoss(pred_cls, targets, topk)
         loss_reg = AddRegLoss(pred_bbox, targets)
-        loss = 3 * loss_cls + loss_reg
+        loss = loss_cls + loss_reg
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), clip_grad)

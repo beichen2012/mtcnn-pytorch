@@ -65,11 +65,14 @@ class RNet(nn.Module):
             nn.MaxPool2d(kernel_size=3, stride=2),
 
             nn.Conv2d(48, 64, kernel_size=2, stride=1, padding=0),
-            nn.PReLU(),
+            nn.PReLU()
 
-            nn.Linear(64 * 3 * 3, 128),
-            nn.PReLU(),
+            # nn.Linear(64 * 3 * 3, 128),
+            # nn.PReLU(),
         )
+
+        self.fc = nn.Linear(64 * 3 * 3, 128)
+        self.relu = nn.PReLU()
 
         self.cls = nn.Linear(128, 2)
         self.reg = nn.Linear(128, 4)
@@ -80,6 +83,7 @@ class RNet(nn.Module):
     def forward(self, x):
         x = self.extractor(x)
         x = x.contiguous().view(x.size(0), -1)
+        x = self.relu(self.fc(x))
         cls = self.cls(x)
         reg = self.reg(x)
         if self.test:
@@ -108,11 +112,11 @@ class ONet(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
 
             nn.Conv2d(64, 128, kernel_size=2, stride=1),
-            nn.PReLU(),
-
-            nn.Linear(128 * 3 * 3, 256),
             nn.PReLU()
         )
+
+        self.fc = nn.Linear(128 * 3 * 3, 256)
+        self.relu = nn.PReLU()
 
         self.cls = nn.Linear(256, 2)
         self.reg = nn.Linear(256, 4)
@@ -120,6 +124,7 @@ class ONet(nn.Module):
     def forward(self, x):
         x = self.extractor(x)
         x = x.contiguous().view(x.size(0), -1)
+        x = self.relu(self.fc(x))
         cls = self.cls(x)
         reg = self.reg(x)
         if self.test:

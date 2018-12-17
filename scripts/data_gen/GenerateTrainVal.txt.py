@@ -15,7 +15,7 @@ log = Logger("./log/{}_{}.log".format(__file__.split('/')[-1],
 import numpy as np
 
 # PNET, RNET , ONET
-net_type = 'PNET'
+net_type = 'RNET'
 
 if net_type == 'PNET':
     postfix = 'p'
@@ -25,7 +25,7 @@ else:
     postfix = 'o'
 
 
-root_dir = "../../dataset"
+root_dir = "../dataset"
 pos_re_dir = "train_faces_{}/pos/".format(postfix)
 neg_re_dir = "train_faces_{}/neg/".format(postfix)
 part_re_dir = "train_faces_{}/part/".format(postfix)
@@ -71,9 +71,9 @@ neg = [neg_re_dir + i.strip() + '\n' for i in neg]
 part = [part_re_dir + i.strip() + '\n' for i in part]
 
 
-pos_train_num = int(npos * 0.85)
-neg_train_num = int(nneg * 0.85)
-part_train_num = int(npart * 0.85)
+pos_train_num = int(npos * 0.95)
+neg_train_num = int(nneg * 0.95)
+part_train_num = int(npart * 0.95)
 
 log.info("train: neg num -> {}, pos num -> {}, part num -> {} val: neg num -> {}, pos num -> {}, part num -> {}".format(
     neg_train_num, pos_train_num, part_train_num,

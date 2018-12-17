@@ -32,7 +32,7 @@ IOU_NEG_THRES = 0.3
 IOU_PART_THRES = 0.4
 
 ## 负样本个数
-neg_samples = 70
+neg_samples = 100
 ## 正样本个数
 pos_samples = 20
 

@@ -97,8 +97,8 @@ def GenerateData(mt):
                 y = int(line[1])
                 w = int(line[2])
                 h = int(line[3])
-                if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
-                    continue
+                # if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
+                #     continue
                 gt_bbox += [(x, y, w, h)]
 
             # 读取图片
