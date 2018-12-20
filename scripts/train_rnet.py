@@ -37,19 +37,16 @@ clip_grad = 120.0
 momentum = 0.9
 gamma = 0.1
 weight_decay = 0.0005
-stepsize = [60000, 110000, 150000, 180000]
-max_iter = 200000
+stepsize = [80000, 140000, 200000, 250000]
+max_iter = 300000
 
 save_interval = 10000
-test_interval = 10000
-test_iter = 500
-test_batch = 400
 
 prefix = "r"
 save_dir = "./models"
 if not os.path.exists(save_dir):
     os.mkdir(save_dir)
-save_prefix = save_dir + "/{}net_20181215".format(prefix)
+save_prefix = save_dir + "/{}net_20181218".format(prefix)
 
 
 root_dir = r"../dataset/"
@@ -60,51 +57,22 @@ MEANS = [127.5,127.5,127.5]
 train_anno_path = []
 val_anno_path = []
 
-train_anno_path += [os.path.join(root_dir, "train_pos_{}.txt".format(prefix))]
-train_anno_path += [os.path.join(root_dir, "train_part_{}.txt".format(prefix))]
-train_anno_path += [os.path.join(root_dir, "train_neg_{}.txt".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/pos/image_pos".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/pos/label_pos".format(prefix))]
 
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/part/image_part".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/part/label_part".format(prefix))]
 
-val_anno_path += [os.path.join(root_dir, "val_pos_{}.txt".format(prefix))]
-val_anno_path += [os.path.join(root_dir, "val_part_{}.txt".format(prefix))]
-val_anno_path += [os.path.join(root_dir, "val_neg_{}.txt".format(prefix))]
-
-def val(dataset, net):
-    aloss = []
-    aloss_cls = []
-    aloss_reg = []
-    aacc_cls = []
-    aacc_reg = []
-    for val_iter in range(test_iter):
-        net.eval()
-        images, targets = dataset.getbatch(test_batch)
-        images = images.to(device)
-        targets = targets.to(device)
-
-        pred_cls, pred_bbox = net(images)
-        loss_cls = AddClsLoss(pred_cls, targets, topk)
-        loss_reg = AddRegLoss(pred_bbox, targets)
-        loss = loss_cls + loss_reg
-
-        aloss += [loss.item()]
-        aloss_cls += [loss_cls.item()]
-        aloss_reg += [loss_reg.item()]
-
-        aacc_cls += [AddClsAccuracy(pred_cls, targets)]
-        aacc_reg += [AddBoxMap(pred_bbox, targets, INPUT_IMAGE_SIZE, INPUT_IMAGE_SIZE)]
-    return np.array(aloss).mean(), np.array(aloss_cls).mean(), np.array(aloss_reg).mean(), np.array(aacc_cls).mean(), np.array(aacc_reg).mean()
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/neg/image_neg".format(prefix))]
+train_anno_path += [os.path.join(root_dir, "train_faces_{}/neg/label_neg".format(prefix))]
 
 
 def train():
     start_epoch = 0
     # dataset
-    train_dataset = DataSource(root_dir, train_anno_path, transform=Compose([
+    train_dataset = DataSource(train_anno_path, transform=Compose([
         RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
-    ]), ratio=2)
-
-    val_dataset = DataSource(root_dir, val_anno_path, transform=Compose([
-        RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
-    ]), ratio=2)
+    ]), ratio=2, image_shape=(24,24,3))
 
     # net
     net = RNet()
@@ -130,7 +98,6 @@ def train():
     net.to(device)
 
     k = 0
-    loss = 0
     for epoch in range(start_epoch, max_iter + 1):
         net.train()
         images, targets = train_dataset.getbatch(train_batch)
@@ -163,10 +130,6 @@ def train():
             SaveCheckPoint(path, net, optimizer, scheduler, epoch)
             log.info("=> save model: {}".format(path))
 
-        if k % test_interval == 0 and k != 0:
-            out = val(val_dataset, net)
-            log.info("=> test iter: {}, lr: {}, loss: {:.4f}, cls loss: {:.4f}, bbox loss: {:.4f}, cls acc: {:.4f}, bbox acc: {:.4f}".format(
-                k, optimizer.param_groups[0]['lr'], out[0], out[1], out[2], out[3], out[4]))
         k += 1
 
     log.info("optimize done...")

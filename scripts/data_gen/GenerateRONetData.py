@@ -15,6 +15,7 @@ import os
 import numpy as np
 import random
 import cv2
+import lmdb
 from util.Logger import Logger
 import time
 if not os.path.exists("./log"):
@@ -30,7 +31,7 @@ IOU_POS_THRES = 0.65
 IOU_NEG_THRES = 0.3
 IOU_PART_THRES = 0.4
 
-net_type = "RNET"
+net_type = "ONET"
 if net_type == "RNET":
     OUT_IMAGE_SIZE = 24
     post_fix = 'r'
@@ -62,21 +63,40 @@ if not os.path.exists(output_neg_dir):
 if not os.path.exists(output_part_dir):
     os.mkdir(output_part_dir)
 
-# ouput labels file
-label_pos = os.path.join(output_pos_dir, "anno_pos.txt")
-label_neg = os.path.join(output_neg_dir, "anno_neg.txt")
-label_part = os.path.join(output_part_dir, "anno_part.txt")
-
-
 def GenerateData(mt):
-    fanno_pos = open(label_pos, "w")
-    fanno_neg = open(label_neg, "w")
-    fanno_part = open(label_part, "w")
     anno_file = os.path.join(anno_dir, "wider_face_train_bbx_gt.txt")
     not_reg_file = open('no_reg.txt', 'w')
-    global_neg_idx = 0
-    global_pos_idx = 0
-    global_part_idx = 0
+
+    # output lmdb
+    # 1 TB
+    LMDB_MAP_SIZE = 1099511627776
+    env_pos_image = lmdb.open(os.path.join(output_pos_dir, "image_pos"), map_size=LMDB_MAP_SIZE)
+    env_pos_label = lmdb.open(os.path.join(output_pos_dir, "label_pos"), map_size=LMDB_MAP_SIZE)
+
+    env_part_image = lmdb.open(os.path.join(output_part_dir, "image_part"), map_size=LMDB_MAP_SIZE)
+    env_part_label = lmdb.open(os.path.join(output_part_dir, "label_part"), map_size=LMDB_MAP_SIZE)
+
+    env_neg_image = lmdb.open(os.path.join(output_neg_dir, "image_neg"), map_size=LMDB_MAP_SIZE)
+    env_neg_label = lmdb.open(os.path.join(output_neg_dir, "label_neg"), map_size=LMDB_MAP_SIZE)
+
+    global_idx_pos = 0
+    global_idx_part = 0
+    global_idx_neg = 0
+
+    # lmdb
+    txn_pos_image = env_pos_image.begin(write=True)
+    txn_pos_label = env_pos_label.begin(write=True)
+
+    txn_part_image = env_part_image.begin(write=True)
+    txn_part_label = env_part_label.begin(write=True)
+
+    txn_neg_image = env_neg_image.begin(write=True)
+    txn_neg_label = env_neg_label.begin(write=True)
+
+    inner_neg_idx = 0
+    inner_pos_idx = 0
+    inner_part_idx = 0
+
     with open(anno_file, "r") as f:
         while True:
             filename = f.readline()
@@ -118,9 +138,6 @@ def GenerateData(mt):
             bbox = bbox[:, 0:4]
 
             # 真值与预测值比较
-            neg_idx = 0
-            pos_idx = 0
-            part_idx = 0
             if len(gt_bbox) <= 0:
                 # 极端情况，所有的bbox都是负样本
                 for i in bbox:
@@ -136,15 +153,11 @@ def GenerateData(mt):
                     crop[dy0:dy1, dx0:dx1, :] = img[sy0:sy1, sx0:sx1, :]
                     out = cv2.resize(crop, (OUT_IMAGE_SIZE, OUT_IMAGE_SIZE))
                     # 保存
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(neg_idx) + ".jpg"
-                    output_path = os.path.join(output_neg_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        neg_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_neg.write(output_filename + ' 0 0 1 1 0\n')
+                    label = np.array([0,0,1,1, 0], dtype=np.float32)
+                    txn_neg_image.put("{}".format(global_idx_neg).encode("ascii"), out.tostring())
+                    txn_neg_label.put("{}".format(global_idx_neg).encode("ascii"), label.tostring())
+                    global_idx_neg += 1
+                    inner_neg_idx += 1
                 continue
 
             # 遍历并判断交并比，来确定是正样本，负样本还是部分人脸样本
@@ -166,15 +179,12 @@ def GenerateData(mt):
                     crop[dy0:dy1, dx0:dx1, :] = img[sy0:sy1, sx0:sx1, :]
                     out = cv2.resize(crop, (OUT_IMAGE_SIZE, OUT_IMAGE_SIZE))
                     # 保存
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(neg_idx) + ".jpg"
-                    output_path = os.path.join(output_neg_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        neg_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_neg.write(output_filename + ' 0 0 1 1 0\n')
+                    label = np.array([0, 0, 1, 1, 0], dtype=np.float32)
+                    txn_neg_image.put("{}".format(global_idx_neg).encode("ascii"), out.tostring())
+                    txn_neg_label.put("{}".format(global_idx_neg).encode("ascii"), label.tostring())
+                    global_idx_neg += 1
+                    inner_neg_idx += 1
+
                     continue
                 # 正样本与部分人脸
                 ## iou最大的真值框
@@ -215,35 +225,58 @@ def GenerateData(mt):
                 ## 判断交并比
                 if np.max(ious) > IOU_POS_THRES:
                     #### 正样本
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(pos_idx) + ".jpg"
-                    output_path = os.path.join(output_pos_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        pos_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_pos.write(output_filename + ' {} {} {} {} 1\n'.format(xmin, ymin, xmax, ymax))
+                    label = np.array([xmin, ymin, xmax, ymax, 1], dtype=np.float32)
+                    txn_pos_image.put("{}".format(global_idx_pos).encode("ascii"), out.tostring())
+                    txn_pos_label.put("{}".format(global_idx_pos).encode("ascii"), label.tostring())
+                    global_idx_pos += 1
+                    inner_pos_idx += 1
                 elif np.max(ious) > IOU_PART_THRES:
                     #### 部分样本
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(part_idx) + ".jpg"
-                    output_path = os.path.join(output_part_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        part_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_part.write(output_filename + ' {} {} {} {} 2\n'.format(xmin, ymin, xmax, ymax))
-            global_neg_idx += neg_idx
-            global_pos_idx += pos_idx
-            global_part_idx += part_idx
-            log.info("neg num: {}, pos num:{}, part num: {}".format(global_neg_idx, global_pos_idx, global_part_idx))
+                    label = np.array([xmin, ymin, xmax, ymax, 2], dtype=np.float32)
+                    txn_part_image.put("{}".format(global_idx_part).encode("ascii"), out.tostring())
+                    txn_part_label.put("{}".format(global_idx_part).encode("ascii"), label.tostring())
+                    global_idx_part += 1
+                    inner_part_idx += 1
+            log.info("neg num: {}, pos num:{}, part num: {}".format(global_idx_neg, global_idx_pos, global_idx_part))
+            if inner_neg_idx > 1000:
+                txn_neg_image.commit()
+                txn_neg_label.commit()
+                txn_neg_image = env_neg_image.begin(write=True)
+                txn_neg_label = env_neg_label.begin(write=True)
+                inner_neg_idx = 0
+                log.info("now commit netative lmdb")
+            if inner_part_idx > 1000:
+                txn_part_image.commit()
+                txn_part_label.commit()
+                txn_part_image = env_part_image.begin(write=True)
+                txn_part_label = env_part_label.begin(write=True)
+                inner_part_idx = 0
+                log.info("now commit part lmdb")
+
+            if inner_pos_idx > 1000:
+                txn_pos_image.commit()
+                txn_pos_label.commit()
+                txn_pos_image = env_pos_image.begin(write=True)
+                txn_pos_label = env_pos_label.begin(write=True)
+                inner_pos_idx = 0
+                log.info("now commit pos lmdb")
     # over
-    fanno_pos.close()
-    fanno_neg.close()
-    fanno_part.close()
     not_reg_file.close()
+
+    log.info("process done!")
+    txn_neg_image.commit()
+    txn_neg_label.commit()
+    txn_part_image.commit()
+    txn_part_label.commit()
+    txn_pos_image.commit()
+    txn_pos_label.commit()
+
+    env_neg_image.close()
+    env_neg_label.close()
+    env_part_image.close()
+    env_part_label.close()
+    env_pos_image.close()
+    env_pos_label.close()
 
 if __name__ == "__main__":
     USE_CUDA = True
@@ -252,7 +285,7 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(i) for i in GPU_ID])
     device = torch.device("cuda:0" if torch.cuda.is_available() and USE_CUDA else "cpu")
     # pnet
-    pnet_weight_path = "./models/pnet_20181212_final.pkl"
+    pnet_weight_path = "./models/pnet_20181218_final.pkl"
     pnet = PNet(test=True)
     LoadWeights(pnet_weight_path, pnet)
     pnet.to(device)
@@ -260,7 +293,7 @@ if __name__ == "__main__":
     # rnet
     rnet = None
     if net_type == "ONET":
-        rnet_weight_path = "./models/rnet_20181212_final.pkl"
+        rnet_weight_path = "./models/rnet_20181218_final.pkl"
         rnet = RNet(test=True)
         LoadWeights(rnet_weight_path, rnet)
         rnet.to(device)

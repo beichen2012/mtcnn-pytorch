@@ -4,14 +4,15 @@ import numpy as np
 import os
 import cv2
 import random
+import lmdb
 import torch.utils.data as data
 
 
 class DataSource(data.Dataset):
-    def __init__(self, root_dir, data_file, transform=None, shuffle=True, ratio=3):
-        self.root_dir = root_dir
+    def __init__(self, data_file, transform=None, shuffle=True, image_shape=(12,12,3), ratio=3):
         self.transform = transform
         self.shuffle = shuffle
+        self.image_shape = image_shape
         self.ratio = int(ratio)
 
         self.pos = []
@@ -20,12 +21,31 @@ class DataSource(data.Dataset):
         self.pos_idx = 0
         self.part_idx = 0
         self.neg_idx = 0
-        with open(data_file[0]) as f:
-            self.pos = f.readlines()
-        with open(data_file[1]) as f:
-            self.part = f.readlines()
-        with open(data_file[2]) as f:
-            self.neg = f.readlines()
+
+        # pos
+        self.pos_env_image = lmdb.open(data_file[0],
+                                       max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+        with self.pos_env_image.begin(write=False) as txn:
+            self.pos = [key for key, _ in txn.cursor()]
+        self.pos_env_label = lmdb.open(data_file[1],
+                                       max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+
+        # part
+        self.part_env_image = lmdb.open(data_file[2],
+                                        max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+        with self.part_env_image.begin(write=False) as txn:
+            self.part = [key for key, _ in txn.cursor()]
+        self.part_env_label = lmdb.open(data_file[3],
+                                        max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+
+        # neg
+        self.neg_env_image = lmdb.open(data_file[4],
+                                       max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+        with self.neg_env_image.begin(write=False) as txn:
+            self.neg = [key for key, _ in txn.cursor()]
+        self.neg_env_label = lmdb.open(data_file[5],
+                                       max_readers=1, readonly=True, lock=False, readahead=False, meminit=False)
+
         if shuffle:
             random.shuffle(self.pos)
             random.shuffle(self.part)
@@ -80,16 +100,34 @@ class DataSource(data.Dataset):
             self.part_idx += part_num
 
         # out
-        batch_anno = neg_anno
-        batch_anno.extend(pos_anno)
-        batch_anno.extend(part_anno)
+        batch_anno = [(i, "0") for i in neg_anno]
+        batch_anno.extend([(i, "1") for i in pos_anno])
+        batch_anno.extend([(i, "2") for i in part_anno])
         random.shuffle(batch_anno)
         return batch_anno
 
     def get_sample(self, line):
-        sample = line.strip().split()
-        img = cv2.imread(os.path.join(self.root_dir, sample[0]), 1)
-        target = np.array([float(i) for i in sample[1:]])
+        label = line[1]
+        img = None
+        target = None
+        if line[1] == "0":
+            with self.neg_env_image.begin(write=False) as txn:
+                img = txn.get(line[0])
+            with self.neg_env_label.begin(write=False) as txn:
+                target = txn.get(line[0])
+        elif line[1] == "1":
+            with self.pos_env_image.begin(write=False) as txn:
+                img = txn.get(line[0])
+            with self.pos_env_label.begin(write=False) as txn:
+                target = txn.get(line[0])
+        else:
+            with self.part_env_image.begin(write=False) as txn:
+                img = txn.get(line[0])
+            with self.part_env_label.begin(write=False) as txn:
+                target = txn.get(line[0])
+
+        img = np.frombuffer(img, dtype=np.uint8).copy().reshape(self.image_shape)
+        target = np.frombuffer(target, dtype=np.float32).copy()
 
         if self.transform:
             img, target = self.transform(img, target)

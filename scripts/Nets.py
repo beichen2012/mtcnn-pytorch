@@ -78,7 +78,7 @@ class RNet(nn.Module):
         self.reg = nn.Linear(128, 4)
 
         if test:
-            self.softmax = nn.Softmax()
+            self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x):
         x = self.extractor(x)
@@ -91,12 +91,12 @@ class RNet(nn.Module):
         return cls, reg
 
 class ONet(nn.Module):
-    def __init__(self, test):
+    def __init__(self, test=False):
         super(ONet, self).__init__()
 
         self.test = test
         if test:
-            self.softmax = nn.Softmax()
+            self.softmax = nn.Softmax(dim=1)
 
         self.extractor = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=0),

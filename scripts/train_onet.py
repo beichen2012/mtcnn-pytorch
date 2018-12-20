@@ -29,7 +29,7 @@ device = torch.device("cuda" if torch.cuda.is_available() and USE_CUDA else "cpu
 pre_checkpoint = None
 resume = False
 
-train_batch = 600
+train_batch = 400
 display = 100
 
 base_lr = 0.001
@@ -37,10 +37,10 @@ clip_grad = 120.0
 momentum = 0.9
 gamma = 0.1
 weight_decay = 0.0005
-stepsize = [50000, 80000, 100000, 120000, 140000]
-max_iter = 150000
+stepsize = [30000, 50000, 60000, 70000]
+max_iter = 80000
 
-save_interval = 50000
+save_interval = 10000
 
 prefix = "o"
 save_dir = "./models"
@@ -50,7 +50,7 @@ save_prefix = save_dir + "/{}net_20181218".format(prefix)
 
 
 root_dir = r"../dataset/"
-INPUT_IMAGE_SIZE = 12
+INPUT_IMAGE_SIZE = 48
 
 topk = 0.7
 MEANS = [127.5,127.5,127.5]
@@ -67,16 +67,15 @@ train_anno_path += [os.path.join(root_dir, "train_faces_{}/neg/image_neg".format
 train_anno_path += [os.path.join(root_dir, "train_faces_{}/neg/label_neg".format(prefix))]
 
 
-
 def train():
     start_epoch = 0
     # dataset
     train_dataset = DataSource(train_anno_path, transform=Compose([
         RandomMirror(0.5), SubtractFloatMeans(MEANS), ToPercentCoords(), PermuteCHW()
-    ]), ratio=8)
+    ]), ratio=1, image_shape=(INPUT_IMAGE_SIZE,INPUT_IMAGE_SIZE,3))
 
     # net
-    net = PNet()
+    net = ONet()
 
     # optimizer and scheduler
     optimizer = optim.SGD(net.parameters(), lr=base_lr, momentum=momentum, weight_decay=weight_decay)
@@ -111,7 +110,7 @@ def train():
 
         loss_cls = AddClsLoss(pred_cls, targets, topk)
         loss_reg = AddRegLoss(pred_bbox, targets)
-        loss = 3 * loss_cls + loss_reg
+        loss = loss_cls + loss_reg * 3
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), clip_grad)

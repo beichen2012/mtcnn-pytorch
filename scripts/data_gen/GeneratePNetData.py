@@ -19,6 +19,7 @@ from pylab import plt
 from util.utility import *
 from util.Logger import Logger
 import time
+import lmdb
 if not os.path.exists("./log"):
     os.mkdir("./log")
 log = Logger("./log/{}_{}.log".format(__file__.split('/')[-1],
@@ -63,18 +64,48 @@ if not os.path.exists(output_part_dir):
     os.mkdir(output_part_dir)
 
 # ouput labels file
-label_pos = os.path.join(output_pos_dir, "anno_pos.txt")
-label_neg = os.path.join(output_neg_dir, "anno_neg.txt")
-label_part = os.path.join(output_part_dir, "anno_part.txt")
+# label_pos = os.path.join(output_pos_dir, "anno_pos.txt")
+# label_neg = os.path.join(output_neg_dir, "anno_neg.txt")
+# label_part = os.path.join(output_part_dir, "anno_part.txt")
 
 #
-fanno_pos = open(label_pos, "w")
-fanno_neg = open(label_neg, "w")
-fanno_part = open(label_part, "w")
+# fanno_pos = open(label_pos, "w")
+# fanno_neg = open(label_neg, "w")
+# fanno_part = open(label_part, "w")
+
+# output lmdb
+# 1 TB
+LMDB_MAP_SIZE = 1099511627776
+env_pos_image = lmdb.open(os.path.join(output_pos_dir, "image_pos"), map_size=LMDB_MAP_SIZE)
+env_pos_label = lmdb.open(os.path.join(output_pos_dir, "label_pos"), map_size=LMDB_MAP_SIZE)
+
+env_part_image = lmdb.open(os.path.join(output_part_dir, "image_part"), map_size=LMDB_MAP_SIZE)
+env_part_label = lmdb.open(os.path.join(output_part_dir, "label_part"), map_size=LMDB_MAP_SIZE)
+
+env_neg_image = lmdb.open(os.path.join(output_neg_dir, "image_neg"), map_size=LMDB_MAP_SIZE)
+env_neg_label = lmdb.open(os.path.join(output_neg_dir, "label_neg"), map_size=LMDB_MAP_SIZE)
+
+global_idx_pos = 0
+global_idx_part = 0
+global_idx_neg = 0
+
+# lmdb
+txn_pos_image = env_pos_image.begin(write=True)
+txn_pos_label = env_pos_label.begin(write=True)
+
+txn_part_image = env_part_image.begin(write=True)
+txn_part_label = env_part_label.begin(write=True)
+
+txn_neg_image = env_neg_image.begin(write=True)
+txn_neg_label = env_neg_label.begin(write=True)
+
 
 # 1, 读取标签(从train库里）
 anno_file = os.path.join(anno_dir, "wider_face_train_bbx_gt.txt")
 with open(anno_file, "r") as f:
+    inner_neg_idx = 0
+    inner_pos_idx = 0
+    inner_part_idx = 0
     while True:
         filename = f.readline()
         if not filename:
@@ -103,6 +134,7 @@ with open(anno_file, "r") as f:
             gt_bbox += [(x, y, w, h)]
         if len(gt_bbox) <= 0:
             continue
+
         # 下面随机生成正样本和负样本
         ## 负样本生成
         neg_idx = 0
@@ -122,18 +154,19 @@ with open(anno_file, "r") as f:
             #score_iom = np.asarray(score_iom)
             # and np.max(score_iom) < IOU_PART_THRES:
             if np.max(score) < IOU_NEG_THRES:
-                output_filename = os.path.splitext(filename)[0]
-                output_filename = output_filename.replace('/', '-')
-                output_filename = output_filename + "_" + str(neg_idx) + ".jpg"
-                output_path = os.path.join(output_neg_dir, output_filename)
                 crop = img[crop_box[1]: crop_box[1] + crop_box[3], crop_box[0]:crop_box[0] + crop_box[2]]
                 # 保存原始图片
                 out = cv2.resize(crop, (OUT_IMAGE_SIZE, OUT_IMAGE_SIZE))
-                ret = cv2.imwrite(output_path, out)
-                if ret:
-                    neg_idx += 1
-                    # line: output_filename 0 0 0 1 1
-                    fanno_neg.write(output_filename + ' 0 0 1 1 0\n')
+                label = np.array([0,0,1,1,0], dtype=np.float32)
+                bo = out.tostring()
+                bl = label.tostring()
+
+                txn_neg_image.put("{}".format(global_idx_neg).encode("ascii"), bo)
+                txn_neg_label.put("{}".format(global_idx_neg).encode("ascii"), bl)
+                neg_idx += 1
+                global_idx_neg += 1
+                inner_neg_idx += 1
+
         ## 正样本、部分人脸样本生成
         pos_idx = 0
         part_idx = 0
@@ -168,15 +201,13 @@ with open(anno_file, "r") as f:
                 if np.max(ious) < IOU_NEG_THRES :
                     crop = img[ny:ny+size, nx:nx+size]
                     out = cv2.resize(crop, (OUT_IMAGE_SIZE, OUT_IMAGE_SIZE))
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(neg_idx) + ".jpg"
-                    output_path = os.path.join(output_neg_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        neg_idx += 1
-                        # line: output_filename 0 0 1 1 0
-                        fanno_neg.write(output_filename + '  0 0 1 1 0\n')
+                    label = np.array([0,0,1,1,0], dtype=np.float32)
+                    txn_neg_image.put("{}".format(global_idx_neg).encode("ascii"), out.tostring())
+                    txn_neg_label.put("{}".format(global_idx_neg).encode("ascii"), label.tostring())
+                    neg_idx += 1
+                    global_idx_neg += 1
+                    inner_neg_idx += 1
+
             ### 生成正样本
             for i in range(pos_samples):
                 size = random.randrange(int(np.min((w,h)) * 0.8), int(np.ceil(1.25 * np.max((w,h)))))
@@ -232,29 +263,56 @@ with open(anno_file, "r") as f:
 
                 if iou > IOU_POS_THRES:
                     #### 正样本
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(pos_idx) + ".jpg"
-                    output_path = os.path.join(output_pos_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        pos_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_pos.write(output_filename + ' {} {} {} {} 1\n'.format(xmin, ymin, xmax, ymax))
+                    label = np.array([xmin, ymin, xmax, ymax, 1], dtype=np.float32)
+                    txn_pos_image.put("{}".format(global_idx_pos).encode("ascii"), out.tostring())
+                    txn_pos_label.put("{}".format(global_idx_pos).encode("ascii"), label.tostring())
+                    pos_idx += 1
+                    global_idx_pos += 1
+                    inner_pos_idx += 1
                 elif iou > IOU_PART_THRES:
                     #### 部分样本
-                    output_filename = os.path.splitext(filename)[0]
-                    output_filename = output_filename.replace('/', '-')
-                    output_filename = output_filename + "_" + str(part_idx) + ".jpg"
-                    output_path = os.path.join(output_part_dir, output_filename)
-                    ret = cv2.imwrite(output_path, out)
-                    if ret:
-                        part_idx += 1
-                        # line: output_filename 0 0 0 0 0
-                        fanno_part.write(output_filename + ' {} {} {} {} 2\n'.format(xmin, ymin, xmax, ymax))
+                    label = np.array([xmin, ymin, xmax, ymax, 2], dtype=np.float32)
+                    txn_part_image.put("{}".format(global_idx_part).encode("ascii"), out.tostring())
+                    txn_part_label.put("{}".format(global_idx_part).encode("ascii"), label.tostring())
+                    part_idx += 1
+                    global_idx_part += 1
+                    inner_part_idx += 1
+        log.info("neg num: {}, pos num:{}, part num: {}".format(global_idx_neg, global_idx_pos, global_idx_part))
+        if inner_neg_idx > 1000:
+            txn_neg_image.commit()
+            txn_neg_label.commit()
+            txn_neg_image = env_neg_image.begin(write=True)
+            txn_neg_label = env_neg_label.begin(write=True)
+            inner_neg_idx = 0
+            log.info("now commit netative lmdb")
+        if inner_part_idx > 1000:
+            txn_part_image.commit()
+            txn_part_label.commit()
+            txn_part_image = env_part_image.begin(write=True)
+            txn_part_label = env_part_label.begin(write=True)
+            inner_part_idx = 0
+            log.info("now commit part lmdb")
 
+        if inner_pos_idx > 1000:
+            txn_pos_image.commit()
+            txn_pos_label.commit()
+            txn_pos_image = env_pos_image.begin(write=True)
+            txn_pos_label = env_pos_label.begin(write=True)
+            inner_pos_idx = 0
+            log.info("now commit pos lmdb")
 # over
-fanno_pos.close()
-fanno_neg.close()
-fanno_part.close()
+
 log.info("process done!")
+txn_neg_image.commit()
+txn_neg_label.commit()
+txn_part_image.commit()
+txn_part_label.commit()
+txn_pos_image.commit()
+txn_pos_label.commit()
+
+env_neg_image.close()
+env_neg_label.close()
+env_part_image.close()
+env_part_label.close()
+env_pos_image.close()
+env_pos_label.close()

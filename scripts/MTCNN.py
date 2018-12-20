@@ -58,9 +58,29 @@ class MTCNN(object):
         # rnet
         if not self.rnet:
             return bboxes
+        bboxes = bboxes[:, 0:4].astype(np.int32)
+        bboxes = self.detect_ronet(img, bboxes, 24)
+
+        if bboxes is None:
+            return None
+
+        ## 可视化RNET的结果
+        if SHOW_FIGURE:
+            plt.figure()
+            tmp = img.copy()
+            for i in bboxes:
+                x0 = int(i[0])
+                y0 = int(i[1])
+                x1 = x0 + int(i[2])
+                y1 = y0 + int(i[3])
+                cv2.rectangle(tmp, (x0, y0), (x1, y1), (0, 0, 255), 2)
+            plt.imshow(tmp[:, :, ::-1])
+            plt.title("rnet result")
 
         if not self.onet:
             return bboxes
+        bboxes = bboxes[:, 0:4].astype(np.int32)
+        bboxes = self.detect_ronet(img, bboxes, 48)
 
         return bboxes
 
@@ -89,10 +109,11 @@ class MTCNN(object):
             im_data = cv2.resize(im, (ws, hs))
             input = Image2Tensor(im_data, (127.5,127.5,127.5))
             input = input.to(self.device)
-
-            output_cls, output_reg = self.pnet(input)
-            output_cls = output_cls.squeeze_(0).cpu().detach().numpy()
-            output_reg = output_reg.squeeze_(0).cpu().detach().numpy()
+            self.pnet.eval()
+            with torch.no_grad():
+                output_cls, output_reg = self.pnet(input)
+            output_cls = output_cls.squeeze_(0).detach().cpu().numpy()
+            output_reg = output_reg.squeeze_(0).detach().cpu().numpy()
 
             bboxes = self.generate_bbox(output_cls, output_reg, scale, self.threshold[0])
 
@@ -167,6 +188,99 @@ class MTCNN(object):
         bbox = np.vstack([dx, dy, dw, dh, score])
         bbox = bbox.T
         return bbox
+
+    def detect_ronet(self, img, bboxes, image_size):
+        H, W, C = img.shape
+        IMAGE_SIZE = image_size
+        # 1, 先将bbox转换成矩形
+        sb = []
+        for i in range(bboxes.shape[0]):
+            box = bboxes[i, :]
+            sq = square_bbox(box)
+            sb += [sq]
+
+        # 2，pad
+        crops = []
+        origin_bbox = []
+        for i in sb:
+            size = i[2]
+            sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1 = pad_bbox(i, W, H)
+            crop = np.zeros((size, size, 3), dtype=np.uint8)
+            if sx0 < 0 or sy0 < 0 or dx0 < 0 or dy0 < 0 or sx1 > W or sy1 > H or dx1 > size or dy1 > size:
+                continue
+            crop[dy0:dy1, dx0:dx1, :] = img[sy0:sy1, sx0:sx1, :]
+            out = cv2.resize(crop, (IMAGE_SIZE, IMAGE_SIZE))
+            out = out.astype(np.float32) - np.array([127.5,127.5,127.5], dtype=np.float32)
+            out = out.swapaxes(1, 2).swapaxes(0, 1)
+            crops += [out]
+            origin_bbox += [i]
+
+        # 3, 预测
+        origin_bbox = np.array(origin_bbox)
+        crops = np.array(crops)
+        input = torch.from_numpy(crops).to(self.device)
+        detector = self.rnet
+        threshold = self.threshold[1]
+        if image_size == 48:
+            detector = self.onet
+            threshold = self.threshold[2]
+        detector.eval()
+        with torch.no_grad():
+            out = detector(input)
+
+        # 4，映射
+        ## out[0] -> N * 2
+        ## out[1] -> N * 4
+        cls_map = out[0].detach().cpu().numpy()
+        reg = out[1].detach().cpu().numpy()
+
+        face_map = cls_map[:, 1]
+        t_index = np.where(face_map > threshold)
+        if t_index[0].shape[0] <= 0:
+            return None
+
+        # #
+        origin_bbox = origin_bbox[t_index]
+        score = face_map[t_index]
+        reg_map = reg[t_index]
+
+        dx = reg_map[:, 0]
+        dy = reg_map[:, 1]
+        dw = reg_map[:, 2]
+        dh = reg_map[:, 3]
+
+        # backward for smooth l1 loss(RCNN)
+        dx *= IMAGE_SIZE
+        dy *= IMAGE_SIZE
+        dw = np.exp(dw) * IMAGE_SIZE
+        dh = np.exp(dh) * IMAGE_SIZE
+
+        # add Gx AND Gy
+        G = origin_bbox
+        G = G.astype(np.float32)
+
+        dx = dx / (float(IMAGE_SIZE) / G[:, 2]) + G[:, 0]
+        dy = dy / (float(IMAGE_SIZE) / G[:, 3]) + G[:, 1]
+        dw = dw / (float(IMAGE_SIZE) / G[:, 2])
+        dh = dh / (float(IMAGE_SIZE) / G[:, 3])
+
+        # compose
+        bbox = np.vstack([dx, dy, dw, dh, score])
+        bbox = bbox.T
+
+        # do nms
+        if image_size == 24:
+            keep = py_nms(bbox, 0.6, "Union")
+            if len(keep) <= 0:
+                return None
+            return bbox[keep]
+
+        if image_size == 48:
+            keep = py_nms(bbox, 0.6, "Minimum")
+            if len(keep) <= 0:
+                return None
+            return bbox[keep]
+
 def LoadWeights(path, net):
     checkpoint = torch.load(path)
     weights = OrderedDict()
@@ -182,24 +296,83 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = ",".join([str(i) for i in GPU_ID])
     device = torch.device("cuda:0" if torch.cuda.is_available() and USE_CUDA else "cpu")
     # pnet
-    pnet_weight_path = "./models/pnet_20181212_final.pkl"
+    pnet_weight_path = "./models/pnet_20181218_final.pkl"
     pnet = PNet(test=True)
     LoadWeights(pnet_weight_path, pnet)
     pnet.to(device)
 
-    mtcnn = MTCNN(detectors=[pnet, None, None], device=device)
+    # rnet
+    rnet_weight_path = "./models/rnet_20181218_final.pkl"
+    rnet = RNet(test=True)
+    LoadWeights(rnet_weight_path, rnet)
+    rnet.to(device)
 
-    img_path = "~/dataset/faces2.jpg"
-    img_path = os.path.expanduser(img_path)
+    # onet
+    onet_weight_path = "./models/onet_20181218_2_final.pkl"
+    onet = ONet(test=True)
+    LoadWeights(onet_weight_path, onet)
+    onet.to(device)
 
-    img =cv2.imread(img_path)
-
-    mtcnn.detect(img)
-
-    if SHOW_FIGURE:
-        plt.show()
+    mtcnn = MTCNN(detectors=[pnet, rnet, onet], device=device, threshold=[0.6, 0.7, 0.7])
 
 
+    #
+    # img_path = "~/dataset/faces3.jpg"
+    # # img_path = "~/dataset/WIDER_FACE/WIDER_train/images/14--Traffic/14_Traffic_Traffic_14_545.jpg"
+    # # img_path = "~/dataset/WIDER_FACE/WIDER_val/images/14--Traffic/14_Traffic_Traffic_14_380.jpg"
+    # img_path = os.path.expanduser(img_path)
+    #
+    # img =cv2.imread(img_path)
+    # b = time.time()
+    # bboxes = mtcnn.detect(img)
+    # e = time.time()
+    # print("time cost: {} ms".format((e-b) * 1000.0))
+    #
+    # if SHOW_FIGURE:
+    #     if bboxes is not None:
+    #         plt.figure()
+    #         tmp = img.copy()
+    #         for i in bboxes:
+    #             x0 = int(i[0])
+    #             y0 = int(i[1])
+    #             x1 = x0 + int(i[2])
+    #             y1 = y0 + int(i[3])
+    #             cv2.rectangle(tmp, (x0, y0), (x1, y1), (0, 0, 255), 2)
+    #         plt.imshow(tmp[:, :, ::-1])
+    #         plt.title("result")
+    #     plt.show()
+
+    fp = "~/dataset/GC_FACE_VAL"
+    fp = os.path.expanduser(fp)
+    txt = "file_list.txt"
+    lines = []
+    with open(os.path.join(fp, txt)) as f:
+        lines = f.readlines()
+
+    f = open("res.txt", "w")
+    for i in lines:
+        j = i.strip()
+        print("now process -> {}".format(j))
+        f.write("{}".format(j))
+        sample = os.path.join(fp, j)
+        img = cv2.imread(sample)
+        bboxes = mtcnn.detect(img)
+
+        if bboxes is not None:
+            f.write(" {} ".format(bboxes.shape[0]))
+            for b in bboxes:
+                x = int(b[0])
+                y = int(b[1])
+                w = int(b[2])
+                h = int(b[3])
+                f.write("{} {} {} {} ".format(x, y, w, h))
+                img = cv2.rectangle(img, (x, y), (x+w, y+h), (0, 0, 255), 2)
+                cv2.imwrite("output/{}".format(j), img)
+        else:
+            f.write(" 0")
+        f.write("\n")
+    f.close()
+    print("done")
 
 
 
