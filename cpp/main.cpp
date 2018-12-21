@@ -7,72 +7,54 @@
 #include <spdhelper.hpp>
 #include <opencv2/opencv.hpp>
 #include <BTimer.hpp>
+#include "MTCNN.h"
 
 int main(int argc, char* argv[])
 {
     ENTER_FUNC;
     BTimer timer;
-    std::string root_path = R"(/home/beichen2012/gitee/pytorchRefineDet/)";
-    std::string vgg_path = "refinedet_vgg16.pt";
 
-    std::shared_ptr<torch::jit::script::Module> model = torch::jit::load(root_path + vgg_path);
+    std::string pnet_weight_path = std::string(MODEL_PATH) + "pnet.pt";
+    std::string rnet_weight_path = std::string(MODEL_PATH) + "rnet.pt";
+    std::string onet_weight_path = std::string(MODEL_PATH) + "onet.pt";
 
-    if(model == nullptr)
-    {
-        LOGE("model read failed!");
-        return -1;
-    }
+    TAlgParam alg_param;
+    alg_param.min_face = 40;
+    alg_param.scale_factor = 0.79;
+    alg_param.cls_thre[0] = 0.6;
+    alg_param.cls_thre[1] = 0.7;
+    alg_param.cls_thre[2] = 0.7;
 
-//    std::string image_root = R"(/home/beichen2012/dataset/VOCdevkit/VOC2012/JPEGImages/)";
-//    std::string image_path = image_root + "2012_004331.jpg";
+    TModelParam modelParam;
+    modelParam.alg_param = alg_param;
+    modelParam.model_path = {pnet_weight_path, rnet_weight_path, onet_weight_path};
+    modelParam.mean_value = {{127.5, 127.5, 127.5}, {127.5, 127.5, 127.5}, {127.5, 127.5, 127.5}};
+    modelParam.scale_factor = {1.0f, 1.0f, 1.0f};
+    modelParam.gpu_id = 0;
+    modelParam.device_type = torch::DeviceType::CUDA;
 
-//    cv::Mat src = cv::imread(image_path, 1);
 
-//    cv::Mat input;
-//    src.convertTo(input, CV_32FC3);
 
-//    cv::Scalar smean = {104, 117, 123};
-//    input -= smean;
+    MTCNN mt;
+    mt.InitDetector(&modelParam);
 
-//    cv::resize(input, input, {320,320});
-
-//    std::vector<float> finput(3 * 320 * 320);
-//    float* data = finput.data();
-
-//    std::vector<cv::Mat> bgr;
-//    for(int i = 0; i < 3; i++)
-//    {
-//        cv::Mat channel(320, 320, CV_32FC1, data);
-//        data += 320 * 320;
-//        bgr.push_back(channel);
-//    }
-//    cv::split(input, bgr);
-
-//    torch::Tensor f = torch::from_blob(finput.data(), {1, 3,320,320});
-
-//    std::vector<torch::jit::IValue> vi;
-//    vi.push_back(f);
-
-    std::vector<torch::jit::IValue> inputs;
-    inputs.push_back(torch::rand({1,3,320,320}, torch::device({torch::kCUDA, 0})));
-    model->to(torch::Device{torch::DeviceType::CUDA, 0});
-
+    cv::Mat src = cv::imread("/home/beichen2012/dataset/faces4.jpg");
+    std::vector<cv::Rect> outFaces;
+    LOGI("warm up...");
+    timer.reset();
     for(int i = 0; i < 5; i++)
-    {
-        model->forward(inputs);
-    }
+        mt.DetectFace(src, outFaces);
+    LOGI("warm up over, time cost: {}", timer.elapsed());
 
     timer.reset();
-    for(int i = 0; i < 10; i++)
-        auto output = model->forward(inputs);
-    LOGI("forward time cost: {} ms", timer.elapsed());
+    mt.DetectFace(src, outFaces);
+    LOGI(" cost: {}", timer.elapsed());
 
-//    bool isTuple = output.isTuple();
-//    auto ot = output.toTuple();
-//    std::vector<torch::jit::IValue> a = ot->elements();
+    for(auto& i : outFaces)
+        cv::rectangle(src, i, {0,255,0}, 2);
 
-//    auto arm_loc = a[0].toTensor();
-
+    cv::imshow("result", src);
+    cv::waitKey(0);
 
     LEAVE_FUNC;
     return 0;

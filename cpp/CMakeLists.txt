@@ -10,7 +10,7 @@
 
 
 
-project(REFINEDET_CPP)
+project(MTCNN_TEST)
 cmake_minimum_required(VERSION 3.2)
 
 add_definitions(-std=c++11)
@@ -45,10 +45,13 @@ message(STATUS "Notice that, current build type -> " ${CMAKE_BUILD_TYPE})
 
 add_definitions(-DLOG_OUT)
 include_directories(${CMAKE_SOURCE_DIR}/third_party)
-link_libraries(/home/beichen2012/Qt5.11.0/5.11.0/gcc_64/lib)
+include_directories(${CMAKE_SOURCE_DIR}/third_party/eigen)
+add_definitions(-DMODEL_PATH="${PROJECT_SOURCE_DIR}/")
 
-set(SRC main.cpp)
-add_executable(refinedet_cpp ${SRC})
-target_link_libraries(refinedet_cpp "${TORCH_LIBRARIES}")
-target_link_libraries(refinedet_cpp ${OPENCV_LIBS})
-set_property(TARGET refinedet_cpp PROPERTY CXX_STANDARD 11)
+set(SRC main.cpp TorchForward.cpp MTCNN.cpp torchutils.cpp)
+#set(SRC example-app.cpp)
+
+add_executable(mtcnn_test ${SRC})
+target_link_libraries(mtcnn_test "${TORCH_LIBRARIES}")
+target_link_libraries(mtcnn_test ${OPENCV_LIBS})
+set_property(TARGET mtcnn_test PROPERTY CXX_STANDARD 11)
