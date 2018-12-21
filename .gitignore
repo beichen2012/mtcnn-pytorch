@@ -3,3 +3,5 @@ dataset/
 __pycache__/
 models/
 *.log
+build/
+cmake-build-debug/
