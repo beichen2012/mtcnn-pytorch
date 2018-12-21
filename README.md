@@ -1,11 +1,22 @@
 # mtcnn-pytorch
 
+![](./img/res1.jpg)
+
+![](./img/res2.jpg)
+
 #### 介绍
 
 mtcnn用pytorch实现代码（从入门到工程化）
+
 mtcnn实现了由粗到精的人脸检测框架，具有承上启下的意义。
-mtcnn分为三个网络，网络模型都很小。原版论文里面的多任务有人脸检测、人脸目标框回归及人脸关键点回归。这里做了简化，只做了人脸检测和人脸目标框回归。
+
+mtcnn分为三个网络，网络模型都很小。原版论文里面的多任务有人脸检测、人脸目标框回归及人脸关键点回归。
+
+这里做了简化，只做了人脸检测和人脸目标框回归。
+
 在实现过程中，参考了：[MTCNN_face_detection_alignment](https://github.com/kpzhang93/MTCNN_face_detection_alignment)和[MTCNN-Tensorflow](https://github.com/AITTSMD/MTCNN-Tensorflow)
+
+
 
 
 #### 安装
@@ -21,8 +32,8 @@ WIDER_val
 4. (c++) cmake, opencv 
 
 #### 测试
-python模型文件在 ${REPO}/scripts/models目录下
-c++ 模型文件在 ${REPO}/cpp目录下
+python模型文件在 `${REPO}/scripts/models`目录下
+c++ 模型文件在 `${REPO}/cpp`目录下
 
 1， python预测，
 修改MTCNN.py 中的图片路径，即可进行测试。（SHOW_FIGURE=True，将会显示预测结果）
@@ -32,7 +43,7 @@ c++ 模型文件在 ${REPO}/cpp目录下
 
 #### 训练
 
-首先cd到${REPO}：
+首先cd到`${REPO}`：
 
 `mkdir dataset`
 

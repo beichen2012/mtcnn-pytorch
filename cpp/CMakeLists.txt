@@ -48,7 +48,7 @@ include_directories(${CMAKE_SOURCE_DIR}/third_party)
 include_directories(${CMAKE_SOURCE_DIR}/third_party/eigen)
 add_definitions(-DMODEL_PATH="${PROJECT_SOURCE_DIR}/")
 
-set(SRC main.cpp TorchForward.cpp MTCNN.cpp torchutils.cpp)
+set(SRC main.cpp MTCNN.cpp torchutils.cpp)
 #set(SRC example-app.cpp)
 
 add_executable(mtcnn_test ${SRC})
