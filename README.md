@@ -33,12 +33,18 @@ WIDER_val
 
 #### 测试
 python模型文件在 `${REPO}/scripts/models`目录下
+
 c++ 模型文件在 `${REPO}/cpp`目录下
 
-1， python预测，
+1， python预测
+
 修改MTCNN.py 中的图片路径，即可进行测试。（SHOW_FIGURE=True，将会显示预测结果）
-2, C++python预测
-修复 main.cpp中的图片路径及 pt模型文件的路径，即可进行测试
+
+2, C++预测
+
+修改 main.cpp中的图片路径及 pt模型文件的路径，即可进行测试
+
+
 
 
 #### 训练
