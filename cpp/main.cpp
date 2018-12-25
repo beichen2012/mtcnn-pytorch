@@ -37,8 +37,13 @@ int main(int argc, char* argv[])
 
     MTCNN mt;
     mt.InitDetector(&modelParam);
-
-    cv::Mat src = cv::imread("/home/beichen2012/dataset/faces4.jpg");
+    std::string img_path = std::string(MODEL_PATH) + "/../img/faces2.jpg";
+    cv::Mat src = cv::imread(img_path);
+    if(!src.data)
+    {
+        LOGE("cannot load image!");
+        return -1;
+    }
     std::vector<cv::Rect> outFaces;
     LOGI("warm up...");
     timer.reset();
@@ -47,6 +52,7 @@ int main(int argc, char* argv[])
     LOGI("warm up over, time cost: {}", timer.elapsed());
 
     timer.reset();
+	//for(;;)
     mt.DetectFace(src, outFaces);
     LOGI(" cost: {}", timer.elapsed());
 
@@ -55,7 +61,7 @@ int main(int argc, char* argv[])
 
     cv::imshow("result", src);
     cv::waitKey(0);
-
+//	cv::imwrite("res2.jpg", src);
     LEAVE_FUNC;
     return 0;
 }

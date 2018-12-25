@@ -17,6 +17,11 @@ using namespace Eigen;
 #define RNET_IMAGE_SIZE 24
 #define ONET_IMAGE_SIZE 48
 
+//#define USE_PNET_MULTI_THREAD
+#ifndef PNET_THREAD_NUM
+#define PNET_THREAD_NUM 2
+#endif
+
 int MTCNN::InitDetector(PTModelParam pparam)
 {
     //0. 判断输入参数是否合法（暂时不检查，后面补上）；
@@ -24,17 +29,10 @@ int MTCNN::InitDetector(PTModelParam pparam)
 
     mtParam = *pparam;
     //1, 初始化各网络
-//    //pnetauto
-//    mWorker.reset(new BThreadPool(PNET_THREAD_NUM));
-//    auto&& thread_ids = mWorker->GetThreadIds();
-//    for (auto& i : thread_ids)
-//    {
-//        std::shared_ptr<Caffe2Predict> net =
-//                std::make_shared<Caffe2Predict>(pparam->model_path[0], pparam->trained_path[0], pparam->use_gpu);
-//        net->SetTransformParam(pparam->mean_value[0], pparam->scale_factor[0]);
-//        mmpPNETS[i] = std::move(net);
-//    }
-
+#ifdef USE_PNET_MULTI_THREAD
+    //thread pool
+    mWorker.reset(new BThreadPool(PNET_THREAD_NUM));
+#endif
     //pnet
     mpPNET = torch::jit::load(pparam->model_path[0]);
     //rnet
@@ -103,17 +101,43 @@ int MTCNN::PNET(cv::Mat & src, std::vector<cv::Rect>& outFaces)
         return -1;
 
     //3. 分层计算
-
     std::vector<std::vector<float>> layerBoxes;
     std::vector<std::vector<float>> layerScores;
     layerBoxes.resize(mvScales.size());
     layerScores.resize(mvScales.size());
+#ifdef USE_PNET_MULTI_THREAD
+    std::vector<std::future<int>> res;
+    //3.1 pre
+    std::vector<std::vector<torch::jit::IValue>> inputs;
+    inputs.resize(mvScales.size());
+    for(int i = 0; i < mvScales.size(); i++)
+    {
+        res.emplace_back(mWorker->AddTask(&MTCNN::PrePNET, this, std::ref(src), mvScales[i], std::ref(inputs[i])));
+    }
+    for(auto&& i : res)
+        i.get();
+    res.clear();
+    //3.2 forward
+    std::vector<torch::jit::IValue> outputs;
+    for(int i = 0; i < inputs.size(); i++)
+    {
+        outputs.emplace_back(mpPNET->forward(inputs[i]));
+    }
+    //3.3 post
 
+    for(int i = 0; i < mvScales.size(); i++)
+    {
+        res.emplace_back(mWorker->AddTask(&MTCNN::PostPNET, this, std::ref(outputs[i]),
+                                          mvScales[i], std::ref(layerBoxes[i]), std::ref(layerScores[i])));
+    }
+    for(auto&& i : res)
+        i.get();
+#else
     for(int i = 0; i < mvScales.size(); i++)
     {
         RunPNetLayer(src, i, layerBoxes[i], layerScores[i]);
     }
-
+#endif
     //5. NMS
     std::vector<float> bboxes;
     std::vector<float> score;
@@ -137,11 +161,10 @@ int MTCNN::PNET(cv::Mat & src, std::vector<cv::Rect>& outFaces)
 
     return 0;
 }
-int MTCNN::RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxes, std::vector<float>& outScores)
+int MTCNN::PrePNET(cv::Mat& src, float scalor, std::vector<torch::jit::IValue>& ti)
 {
     //1. 这一层的Image
     //BTimer t;
-    float scalor = mvScales[scale_idx];
     int nw = src.cols * scalor;
     int nh = src.rows * scalor;
     cv::Mat image;
@@ -149,9 +172,7 @@ int MTCNN::RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxe
     cv::resize(src, image, { nw, nh });
     //LOGI("pnet layer resize : {} us", t.elapsed_micro());
 
-    auto& pnet = mpPNET;
-    torch::Tensor input;
-    //torch::Tensor input = torch::zeros({image.rows, image.cols, image.channels()});
+    torch::Tensor input = torch::zeros({image.rows, image.cols, image.channels()});
 
     cv::Mat img_float;
     image.convertTo(img_float, CV_32F);
@@ -161,21 +182,21 @@ int MTCNN::RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxe
         img_float *= mtParam.scale_factor[0];
     }
     auto nn = input.numel();
-    //memcpy(input.data_ptr(), img_float.data, input.numel() * sizeof(float));
-    input = torch::from_blob(img_float.data, {image.rows, image.cols, image.channels()});
-
+    memcpy(input.data_ptr(), img_float.data, input.numel() * sizeof(float));
+    input = input.to(torch::Device(mtParam.device_type, mtParam.gpu_id));
     input = input.permute({2, 0, 1});
     input.unsqueeze_(0);
 
-    input = input.to(torch::Device(mtParam.device_type, mtParam.gpu_id));
+    ti.clear();
+    ti.emplace_back(std::move(input));
+    return 0;
+}
 
-    std::vector<torch::jit::IValue> inputs;
-    inputs.emplace_back(std::move(input));
+int MTCNN::PostPNET(torch::jit::IValue& to, float scalor, std::vector<float>& outBoxes, std::vector<float>& outScores)
+{
+    auto ot = to.toTuple();
 
-    auto&& out = pnet->forward(inputs);
-    auto ot = out.toTuple();
-
-    inputs = ot->elements();
+    std::vector<torch::jit::IValue> inputs = ot->elements();
     auto cls = inputs[0].toTensor().cpu();
     auto reg = inputs[1].toTensor().cpu();
 
@@ -224,6 +245,15 @@ int MTCNN::RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxe
     //7. 填充输出
     outBoxes = std::move(bboxes);
     outScores = std::move(score);
+    return 0;
+}
+int MTCNN::RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxes, std::vector<float>& outScores)
+{
+    float scalor = mvScales[scale_idx];
+    std::vector<torch::jit::IValue> inputs;
+    PrePNET(src, scalor, inputs);
+    auto&& to = mpPNET->forward(inputs);
+    PostPNET(to, scalor, outBoxes, outScores);
 
     return 0;
 }
@@ -538,9 +568,9 @@ int MTCNN::RunRONet(std::shared_ptr<torch::jit::script::Module> net,
         memcpy(head, imgs[i].data, sizeof(float) * 3 * IMAGE_SIZE * IMAGE_SIZE);
         head += 3 * IMAGE_SIZE * IMAGE_SIZE;
     }
-
-    input = input.permute({0, 3, 1, 2});
     input = input.to(torch::Device(mtParam.device_type, mtParam.gpu_id));
+    input = input.permute({0, 3, 1, 2});
+
 
     std::vector<torch::jit::IValue> inputs = {input};
 

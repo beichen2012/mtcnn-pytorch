@@ -7,6 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <vector>
+#include <BThreadPool.hpp>
 
 //算法参数
 typedef struct _tAlgParam
@@ -50,6 +51,10 @@ public:
     // pnet 分层计算
     int RunPNetLayer(cv::Mat& src, int scale_idx, std::vector<float>& outBoxes, std::vector<float>& outScores);
 
+    int PrePNET(cv::Mat& src, float scalor, std::vector<torch::jit::IValue>& ti);
+
+    int PostPNET(torch::jit::IValue& to, float scalor, std::vector<float>& outBoxes, std::vector<float>& outScores);
+
 protected:
     int PNET(cv::Mat& src, std::vector<cv::Rect>& outFaces);
     int RNET(cv::Mat& src, std::vector<cv::Rect>& outFaces);
@@ -79,8 +84,7 @@ private:
     std::vector<float> mvScales;
     TModelParam mtParam;
     //pnet
-    //std::map<std::thread::id, std::shared_ptr<Caffe2Predict> > mmpPNETS;
-    //std::shared_ptr<BThreadPool> mWorker;
+    std::shared_ptr<BThreadPool> mWorker;
     std::shared_ptr<torch::jit::script::Module> mpPNET;
     //rnet
     std::shared_ptr<torch::jit::script::Module> mpRNET;

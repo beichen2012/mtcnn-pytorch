@@ -43,10 +43,14 @@ endif()
 
 message(STATUS "Notice that, current build type -> " ${CMAKE_BUILD_TYPE})
 
+add_definitions(-DMODEL_PATH="${PROJECT_SOURCE_DIR}/")
 add_definitions(-DLOG_OUT)
+add_definitions(-DUSE_PNET_MULTI_THREAD)
+
+
 include_directories(${CMAKE_SOURCE_DIR}/third_party)
 include_directories(${CMAKE_SOURCE_DIR}/third_party/eigen)
-add_definitions(-DMODEL_PATH="${PROJECT_SOURCE_DIR}/")
+
 
 set(SRC main.cpp MTCNN.cpp torchutils.cpp)
 #set(SRC example-app.cpp)
